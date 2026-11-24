@@ -1,0 +1,227 @@
+
+import pandas as pd
+import numpy as np
+
+
+class CustomerFeatureSelection:
+
+    def __init__(self):
+        """
+        Load the dataset from AWCustomers.csv.
+        """
+        self.df = pd.read_csv("AWCustomers.csv")
+        self.selected_df = None
+
+    def clean_dataset(self):
+        """
+        Clean the dataset by:
+        - Removing duplicate rows.
+        - Filling missing numeric values using median.
+        - Filling missing categorical values using mode.
+        """
+
+        # Remove duplicate rows
+        self.df.drop_duplicates(inplace=True)
+
+        # Find numerical columns
+        numeric_cols = self.df.select_dtypes(
+            include=np.number
+        ).columns
+
+        # Find categorical columns
+        categorical_cols = self.df.select_dtypes(
+            exclude=np.number
+        ).columns
+
+        # Fill missing numerical values with median
+        for col in numeric_cols:
+            median_value = self.df[col].median()
+            self.df[col] = self.df[col].fillna(median_value)
+
+        # Fill missing categorical values with mode
+        for col in categorical_cols:
+            if self.df[col].isnull().any():
+
+                mode_value = self.df[col].mode()
+
+                if not mode_value.empty:
+                    self.df[col] = self.df[col].fillna(
+                        mode_value[0]
+                    )
+
+    def analyze_attributes(self):
+        """
+        Analyze the attributes of the dataset.
+        """
+
+        summary = {}
+
+        for col in self.df.columns:
+
+            summary[col] = {
+                "data_type": str(self.df[col].dtype),
+                "missing_values": int(
+                    self.df[col].isnull().sum()
+                ),
+                "unique_values": int(
+                    self.df[col].nunique()
+                )
+            }
+
+        return summary
+
+    def select_features(self):
+        """
+        Select relevant customer attributes.
+        """
+
+        selected_columns = [
+            "BirthDate",
+            "Education",
+            "Occupation",
+            "Gender",
+            "MaritalStatus",
+            "HomeOwnerFlag",
+            "NumberCarsOwned",
+            "NumberChildrenAtHome",
+            "TotalChildren",
+            "YearlyIncome",
+            "CountryRegionName"
+        ]
+
+        self.selected_df = self.df[
+            selected_columns
+        ].copy()
+
+    def get_selected_dataset(self):
+        """
+        Return the selected dataset.
+        """
+
+        return self.selected_df
+
+    def analyze_attribute_types(self):
+        """
+        Analyze the value type and measurement scale
+        of each selected attribute.
+        """
+
+        return {
+
+            "BirthDate": {
+                "value_type": "Discrete",
+                "measurement_scale": "Interval"
+            },
+
+            "Education": {
+                "value_type": "Discrete",
+                "measurement_scale": "Ordinal"
+            },
+
+            "Occupation": {
+                "value_type": "Discrete",
+                "measurement_scale": "Nominal"
+            },
+
+            "Gender": {
+                "value_type": "Discrete",
+                "measurement_scale": "Nominal"
+            },
+
+            "MaritalStatus": {
+                "value_type": "Discrete",
+                "measurement_scale": "Nominal"
+            },
+
+            "HomeOwnerFlag": {
+                "value_type": "Discrete",
+                "measurement_scale": "Nominal"
+            },
+
+            "NumberCarsOwned": {
+                "value_type": "Discrete",
+                "measurement_scale": "Ratio"
+            },
+
+            "NumberChildrenAtHome": {
+                "value_type": "Discrete",
+                "measurement_scale": "Ratio"
+            },
+
+            "TotalChildren": {
+                "value_type": "Discrete",
+                "measurement_scale": "Ratio"
+            },
+
+            "YearlyIncome": {
+                "value_type": "Continuous",
+                "measurement_scale": "Ratio"
+            },
+
+            "CountryRegionName": {
+                "value_type": "Discrete",
+                "measurement_scale": "Nominal"
+            }
+        }
+
+    def generate_preprocessing_plan(self):
+        """
+        Generate a preprocessing plan for each attribute.
+        """
+
+        return {
+
+            "BirthDate": "date",
+            "Education": "ordinal",
+            "Occupation": "onehot",
+            "Gender": "label",
+            "MaritalStatus": "label",
+            "HomeOwnerFlag": "none",
+            "NumberCarsOwned": "standardize",
+            "NumberChildrenAtHome": "standardize",
+            "TotalChildren": "standardize",
+            "YearlyIncome": "normalize",
+            "CountryRegionName": "onehot"
+        }
+
+    def get_dataset(self):
+        """
+        Return the cleaned dataset.
+        """
+
+        return self.df
+
+
+if __name__ == "__main__":
+
+    analyzer = CustomerFeatureSelection()
+
+    # Clean the dataset
+    analyzer.clean_dataset()
+
+    print("\nAttribute Summary:")
+
+    print(
+        analyzer.analyze_attributes()
+    )
+
+    # Select relevant features
+    analyzer.select_features()
+
+    print("\nSelected Dataset:")
+
+    print(
+        analyzer.get_selected_dataset()
+    )
+
+    print("\nAttribute Types:")
+
+    print(
+        analyzer.analyze_attribute_types()
+    )
+
+    print("\nPreprocessing Plan:")
+
+    print(
+        analyzer.generate_preprocessing_plan()
+    )
