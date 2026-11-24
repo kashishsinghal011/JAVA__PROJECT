@@ -1,0 +1,4026 @@
+diff --git a/frontend/src/pages/Analytics.jsx b/frontend/src/pages/Analytics.jsx
+new file mode 100644
+index 0000000..f36585c
+--- /dev/null
++++ b/frontend/src/pages/Analytics.jsx
+@@ -0,0 +1,303 @@
++import { useState } from "react";
++import useApi from "../hooks/useApi.js";
++import { api, MATCH_STATUSES } from "../services/mockApi.js";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const winRate = (p) => (p.matchesPlayed ? Math.round((p.matchesWon / p.matchesPlayed) * 100) : 0);
++
++const METRICS = {
++  net: { label: "Net wins", value: (p) => p.matchesWon - p.matchesLost, fmt: (v) => (v > 0 ? `+${v}` : v) },
++  wins: { label: "Wins", value: (p) => p.matchesWon, fmt: (v) => v },
++  points: { label: "Points", value: (p) => p.pointsScored, fmt: (v) => v },
++  rate: { label: "Win rate", value: winRate, fmt: (v) => `${v}%` },
++};
++
++const COLUMNS = [
++  { key: "name", label: "Player" },
++  { key: "matchesPlayed", label: "Played" },
++  { key: "matchesWon", label: "Won" },
++  { key: "matchesLost", label: "Lost" },
++  { key: "matchesDrawn", label: "Drawn" },
++  { key: "rate", label: "Win %" },
++  { key: "pointsScored", label: "Points" },
++];
++
++const STATUS_COLORS = { SCHEDULED: "var(--brand-2)", COMPLETED: "var(--green)", CANCELLED: "#b8bfcc" };
++
++function Analytics() {
++  const { data, loading, error, reload } = useApi(() => api.getAnalytics(), []);
++  const { data: players, error: playersError } = useApi(() => api.getPlayers(), []);
++  const { data: matches } = useApi(() => api.getMatches(), []);
++  const [metric, setMetric] = useState("net");
++  const [sort, setSort] = useState({ key: "matchesWon", dir: "desc" });
++  const [onlyRegistered, setOnlyRegistered] = useState(false);
++
++  if (loading) return <Loading />;
++  if (error)
++    return (
++      <>
++        <ErrorBox message={error} />
++        <button className="btn btn--ghost" style={{ alignSelf: "flex-start" }} onClick={reload}>
++          Retry
++        </button>
++      </>
++    );
++
++  const maxSport = Math.max(1, ...data.bySport.map((s) => s.players));
++  const pool = (players || []).filter((p) => !onlyRegistered || p.registered);
++
++  const m = METRICS[metric];
++  const leaderboard = [...pool]
++    .sort((a, b) => m.value(b) - m.value(a) || b.pointsScored - a.pointsScored)
++    .slice(0, 5);
++
++  const sortVal = (p, k) => (k === "rate" ? winRate(p) : p[k]);
++  const table = [...pool].sort((a, b) => {
++    const va = sortVal(a, sort.key);
++    const vb = sortVal(b, sort.key);
++    const c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
++    return sort.dir === "asc" ? c : -c;
++  });
++
++  const totals = pool.reduce(
++    (acc, p) => ({
++      won: acc.won + p.matchesWon,
++      lost: acc.lost + p.matchesLost,
++      drawn: acc.drawn + p.matchesDrawn,
++    }),
++    { won: 0, lost: 0, drawn: 0 },
++  );
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Analytics</h2>
++          <p>Participation, performance and leaderboard across all sports.</p>
++        </div>
++        <button className="btn btn--ghost" onClick={reload}>
++          ↻ Refresh
++        </button>
++      </div>
++
++      <div className="kpi-grid">
++        {data.kpis.map((k) => (
++          <div className="card kpi" key={k.label}>
++            <span className="kpi-icon" aria-hidden="true">
++              {k.icon}
++            </span>
++            <div>
++              <div className="kpi-value">{k.value}</div>
++              <div className="stat-label">{k.label}</div>
++            </div>
++          </div>
++        ))}
++      </div>
++
++      <div className="grid-2">
++        <div className="card card-pad">
++          <h3>Sport-wise participation</h3>
++          <p style={{ margin: "-6px 0 14px", color: "var(--text-2)", fontSize: 12.5 }}>
++            Players listing each sport as a preference
++          </p>
++          {data.bySport.map((s) => (
++            <div className="bar-row" key={s.sport}>
++              <span>{s.sport}</span>
++              <div style={{ background: "var(--brand-soft)", borderRadius: 999 }}>
++                <div
++                  className="bar"
++                  style={{ width: `${(s.players / maxSport) * 100}%`, minWidth: s.players ? 10 : 0 }}
++                  role="img"
++                  aria-label={`${s.sport}: ${s.players} players`}
++                />
++              </div>
++              <span className="mono">{s.players}</span>
++            </div>
++          ))}
++        </div>
++
++        <div className="card card-pad">
++          <h3>Match status</h3>
++          {!matches ? (
++            <Loading />
++          ) : !matches.length ? (
++            <Empty icon="⚽" text="No matches recorded yet." />
++          ) : (
++            <Donut matches={matches} />
++          )}
++        </div>
++      </div>
++
++      <div className="grid-2">
++        <div className="card card-pad">
++          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
++            <h3 style={{ margin: 0 }}>🏆 Leaderboard</h3>
++            <select className="select" style={{ maxWidth: 200 }} value={metric} onChange={(e) => setMetric(e.target.value)} aria-label="Rank by">
++              {Object.entries(METRICS).map(([k, v]) => (
++                <option key={k} value={k}>
++                  Rank by {v.label.toLowerCase()}
++                </option>
++              ))}
++            </select>
++          </div>
++          {leaderboard.map((p, i) => (
++            <div className="rank" key={p.id}>
++              <span className="rank-num">{i + 1}</span>
++              <span style={{ flex: 1 }}>
++                {i === 0 && "🥇 "}
++                {i === 1 && "🥈 "}
++                {i === 2 && "🥉 "}
++                {p.name}
++              </span>
++              <span className="mono">{m.fmt(m.value(p))}</span>
++            </div>
++          ))}
++          {!leaderboard.length && <Empty icon="🏆" text="No players to rank." />}
++        </div>
++
++        <div className="card card-pad">
++          <h3>Overall results</h3>
++          {pool.length ? (
++            <>
++              <StackBar won={totals.won} lost={totals.lost} drawn={totals.drawn} />
++              <div className="legend">
++                <span style={{ color: "var(--green)" }}>Won {totals.won}</span>
++                <span style={{ color: "var(--red)" }}>Lost {totals.lost}</span>
++                <span style={{ color: "var(--amber)" }}>Drawn {totals.drawn}</span>
++              </div>
++            </>
++          ) : (
++            <Empty text="No player results yet." />
++          )}
++        </div>
++      </div>
++
++      <div className="card card-pad">
++        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
++          <h3 style={{ margin: 0 }}>Player statistics</h3>
++          <div className="checks">
++            <label>
++              <input type="checkbox" checked={onlyRegistered} onChange={(e) => setOnlyRegistered(e.target.checked)} /> Registered players only
++            </label>
++          </div>
++        </div>
++        {playersError && <ErrorBox message={playersError} />}
++        {!players && !playersError && <Loading />}
++        {players && (
++          <div className="table-wrap">
++            <table>
++              <thead>
++                <tr>
++                  {COLUMNS.map((c) => (
++                    <th key={c.key} aria-sort={sort.key === c.key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
++                      <button
++                        className="btn btn--ghost btn--sm"
++                        style={{ border: 0, padding: 0, background: "none", font: "inherit", color: "inherit" }}
++                        onClick={() =>
++                          setSort((s) => ({ key: c.key, dir: s.key === c.key && s.dir === "desc" ? "asc" : "desc" }))
++                        }
++                      >
++                        {c.label} {sort.key === c.key ? (sort.dir === "asc" ? "▲" : "▼") : ""}
++                      </button>
++                    </th>
++                  ))}
++                </tr>
++              </thead>
++              <tbody>
++                {table.map((p) => (
++                  <tr key={p.id}>
++                    <td>{p.name}</td>
++                    <td className="mono">{p.matchesPlayed}</td>
++                    <td className="mono">{p.matchesWon}</td>
++                    <td className="mono">{p.matchesLost}</td>
++                    <td className="mono">{p.matchesDrawn}</td>
++                    <td>
++                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 110 }}>
++                        <div style={{ flex: 1, background: "var(--brand-soft)", borderRadius: 999 }}>
++                          <div className="bar" style={{ width: `${winRate(p)}%` }} />
++                        </div>
++                        <span className="mono">{winRate(p)}%</span>
++                      </div>
++                    </td>
++                    <td className="mono">{p.pointsScored}</td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++            {!table.length && <Empty text="No players match this filter." />}
++          </div>
++        )}
++      </div>
++    </>
++  );
++}
++
++function StackBar({ won, lost, drawn }) {
++  const total = won + lost + drawn || 1;
++  const seg = (v, color) => <div style={{ width: `${(v / total) * 100}%`, background: color }} />;
++  return (
++    <div
++      role="img"
++      aria-label={`Won ${won}, lost ${lost}, drawn ${drawn}`}
++      style={{ display: "flex", height: 18, borderRadius: 999, overflow: "hidden", gap: 2, background: "var(--border)" }}
++    >
++      {seg(won, "var(--green)")}
++      {seg(lost, "var(--red)")}
++      {seg(drawn, "var(--amber)")}
++    </div>
++  );
++}
++
++function Donut({ matches }) {
++  const counts = MATCH_STATUSES.map((s) => ({ s, n: matches.filter((m) => m.status === s).length }));
++  const total = matches.length;
++  const R = 54;
++  const C = 2 * Math.PI * R;
++  let offset = 0;
++  return (
++    <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
++      <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label={counts.map((c) => `${c.s} ${c.n}`).join(", ")}>
++        <circle cx="70" cy="70" r={R} fill="none" stroke="var(--border)" strokeWidth="18" />
++        {counts.map(({ s, n }) => {
++          const len = (n / total) * C;
++          const el = (
++            <circle
++              key={s}
++              cx="70"
++              cy="70"
++              r={R}
++              fill="none"
++              stroke={STATUS_COLORS[s]}
++              strokeWidth="18"
++              strokeDasharray={`${len} ${C - len}`}
++              strokeDashoffset={-offset}
++              transform="rotate(-90 70 70)"
++            />
++          );
++          offset += len;
++          return el;
++        })}
++        <text x="70" y="68" textAnchor="middle" fontSize="24" fontWeight="800" fill="var(--text)">
++          {total}
++        </text>
++        <text x="70" y="88" textAnchor="middle" fontSize="11" fill="var(--text-2)">
++          matches
++        </text>
++      </svg>
++      <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13.5 }}>
++        {counts.map(({ s, n }) => (
++          <li key={s} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
++            <span style={{ width: 10, height: 10, borderRadius: 3, background: STATUS_COLORS[s] }} />
++            {s.charAt(0) + s.slice(1).toLowerCase()}
++            <strong style={{ marginLeft: 6 }}>{n}</strong>
++          </li>
++        ))}
++      </ul>
++    </div>
++  );
++}
++
++Analytics.title = "Analytics";
++Analytics.icon = "📈";
++export default Analytics;
+diff --git a/frontend/src/pages/Coaches.jsx b/frontend/src/pages/Coaches.jsx
+index c718c8b..e716356 100644
+--- a/frontend/src/pages/Coaches.jsx
++++ b/frontend/src/pages/Coaches.jsx
+@@ -1,7 +1,7 @@
+ import { useState } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SPORTS } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+ function Coaches() {
+diff --git a/frontend/src/pages/DataControls.jsx b/frontend/src/pages/DataControls.jsx
+new file mode 100644
+index 0000000..b5f96ed
+--- /dev/null
++++ b/frontend/src/pages/DataControls.jsx
+@@ -0,0 +1,218 @@
++import { useState } from "react";
++import useApi, { useToasts } from "../hooks/useApi.js";
++import { api } from "../services/mockApi.js";
++import Toasts from "../components/Toasts.jsx";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const COUNT_LABELS = {
++  players: "Players",
++  coaches: "Coaches",
++  teams: "Teams",
++  tournaments: "Tournaments",
++  bookings: "Bookings",
++  equipment: "Equipment items",
++  issued: "Items on issue",
++  matches: "Matches",
++  payments: "Payments",
++};
++
++const fmtDate = (iso) =>
++  new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
++
++function DataControls() {
++  const { data: snapshots, loading, error, reload } = useApi(() => api.listSnapshots(), []);
++  const { data: counts, reload: reloadCounts } = useApi(() => api.getDataCounts(), []);
++  const { toasts, push } = useToasts();
++  const [label, setLabel] = useState("");
++  const [busy, setBusy] = useState(null);
++  // { type: 'restore' | 'delete' | 'reset', snap? }
++  const [confirm, setConfirm] = useState(null);
++
++  if (loading) return <Loading />;
++  if (error) return <ErrorBox message={error} />;
++
++  const refresh = () => {
++    reload();
++    reloadCounts();
++  };
++
++  const save = async (e) => {
++    e.preventDefault();
++    setBusy("save");
++    try {
++      const { persisted } = await api.saveSnapshot(label);
++      push(persisted ? "Snapshot saved in this browser" : "Snapshot saved for this session only (browser storage unavailable)", persisted ? "success" : "error");
++      setLabel("");
++      refresh();
++    } catch (err) {
++      push(err.message, "error");
++    } finally {
++      setBusy(null);
++    }
++  };
++
++  const runConfirmed = async () => {
++    const { type, snap } = confirm;
++    setBusy(type);
++    try {
++      if (type === "restore") {
++        await api.restoreSnapshot(snap.id);
++        push(`Restored "${snap.label}"`);
++      } else if (type === "delete") {
++        await api.deleteSnapshot(snap.id);
++        push(`Deleted "${snap.label}"`);
++      } else if (type === "reset") {
++        await api.resetData();
++        push("Sample data restored");
++      }
++      refresh();
++    } catch (err) {
++      push(err.message, "error");
++    } finally {
++      setBusy(null);
++      setConfirm(null);
++    }
++  };
++
++  const confirmText = confirm && {
++    restore: {
++      title: `Restore "${confirm.snap?.label}"?`,
++      body: "All current players, teams, tournaments, bookings, equipment, matches and payments will be replaced with this snapshot. Unsaved changes will be lost — save a snapshot first if you want to keep them.",
++      action: "Yes, restore",
++    },
++    delete: {
++      title: `Delete "${confirm.snap?.label}"?`,
++      body: "This snapshot will be removed permanently from this browser. Current data is not affected.",
++      action: "Yes, delete",
++    },
++    reset: {
++      title: "Reset to the original sample data?",
++      body: "Every change made in this preview will be discarded and the built-in sample data reloaded. Saved snapshots are kept.",
++      action: "Yes, reset",
++    },
++  }[confirm.type];
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Save / Load Data</h2>
++          <p>Save the current preview data as a snapshot and restore it later.</p>
++        </div>
++      </div>
++
++      <div className="preview-banner" role="note" style={{ margin: 0 }}>
++        Snapshots are stored in <strong>this browser only</strong> (localStorage). They are not
++        written to the Java backend's data file and are not shared with other devices.
++      </div>
++
++      <div className="grid-2">
++        <form className="card card-pad" onSubmit={save}>
++          <h3>💾 Save snapshot</h3>
++          <div className="field">
++            <label htmlFor="snap-label">Snapshot name (optional)</label>
++            <input
++              id="snap-label"
++              className="input"
++              placeholder="e.g. Before inter-hostel cup"
++              maxLength={60}
++              value={label}
++              onChange={(e) => setLabel(e.target.value)}
++            />
++          </div>
++          <div className="form-actions">
++            <button className="btn" type="submit" disabled={!!busy}>
++              {busy === "save" ? "Saving…" : "Save current data"}
++            </button>
++            <button className="btn btn--danger" type="button" disabled={!!busy} onClick={() => setConfirm({ type: "reset" })}>
++              Reset to sample data
++            </button>
++          </div>
++        </form>
++
++        <div className="card card-pad">
++          <h3>📊 Current data</h3>
++          {!counts ? (
++            <Loading />
++          ) : (
++            <div className="checks">
++              {Object.entries(COUNT_LABELS).map(([k, l]) => (
++                <span key={k} className="badge badge--blue">
++                  {l}: {counts[k]}
++                </span>
++              ))}
++            </div>
++          )}
++        </div>
++      </div>
++
++      {confirm && (
++        <div className="card card-pad" role="alertdialog" aria-labelledby="dc-title" style={{ borderColor: "#f3c6c6" }}>
++          <h3 id="dc-title">⚠️ {confirmText.title}</h3>
++          <p style={{ margin: 0, color: "var(--text-2)", fontSize: 13.5 }}>{confirmText.body}</p>
++          <div className="form-actions">
++            <button className="btn btn--danger" onClick={runConfirmed} disabled={!!busy}>
++              {busy ? "Working…" : confirmText.action}
++            </button>
++            <button className="btn btn--ghost" onClick={() => setConfirm(null)} disabled={!!busy}>
++              Cancel
++            </button>
++          </div>
++        </div>
++      )}
++
++      <div className="card card-pad">
++        <h3>📂 Saved snapshots ({snapshots.length})</h3>
++        {snapshots.length ? (
++          <div className="table-wrap">
++            <table>
++              <thead>
++                <tr>
++                  <th>Name</th>
++                  <th>Saved</th>
++                  <th>Contents</th>
++                  <th></th>
++                </tr>
++              </thead>
++              <tbody>
++                {snapshots.map((s) => (
++                  <tr key={s.id}>
++                    <td>
++                      {s.label}
++                      <div className="mono" style={{ fontSize: 11.5, color: "var(--text-2)" }}>
++                        {s.id}
++                      </div>
++                    </td>
++                    <td className="mono">{fmtDate(s.createdAt)}</td>
++                    <td style={{ fontSize: 12.5, color: "var(--text-2)" }}>
++                      {s.counts.players} players · {s.counts.teams} teams · {s.counts.tournaments} tournaments ·{" "}
++                      {s.counts.matches} matches
++                    </td>
++                    <td>
++                      <div className="actions">
++                        <button className="btn btn--sm" disabled={!!busy} onClick={() => setConfirm({ type: "restore", snap: s })}>
++                          Restore
++                        </button>
++                        <button className="btn btn--danger btn--sm" disabled={!!busy} onClick={() => setConfirm({ type: "delete", snap: s })}>
++                          Delete
++                        </button>
++                      </div>
++                    </td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++        ) : (
++          <Empty icon="💾" text="No snapshots yet — save one above." />
++        )}
++      </div>
++      <Toasts toasts={toasts} />
++    </>
++  );
++}
++
++DataControls.title = "Save / Load Data";
++DataControls.icon = "💾";
++export default DataControls;
+diff --git a/frontend/src/pages/Equipment.jsx b/frontend/src/pages/Equipment.jsx
+new file mode 100644
+index 0000000..1e58e7c
+--- /dev/null
++++ b/frontend/src/pages/Equipment.jsx
+@@ -0,0 +1,470 @@
++import { useState } from "react";
++import useApi, { useToasts } from "../hooks/useApi.js";
++import { api, SPORTS, CONDITIONS } from "../services/mockApi.js";
++import Toasts from "../components/Toasts.jsx";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const conditionClass = (c) =>
++  ({
++    EXCELLENT: "badge--green",
++    GOOD: "badge--blue",
++    WORN: "badge--amber",
++    NEEDS_REPAIR: "badge--red",
++    RETIRED: "badge--gray",
++  })[c] || "badge--gray";
++const pretty = (s) =>
++  s
++    .replaceAll("_", " ")
++    .toLowerCase()
++    .replace(/^\w/, (c) => c.toUpperCase());
++
++const availability = (e) => {
++  if (e.availableUnits === 0)
++    return { label: "Out of stock", cls: "badge--red" };
++  if (e.availableUnits / e.totalUnits <= 0.25)
++    return { label: "Low stock", cls: "badge--amber" };
++  return { label: "Available", cls: "badge--green" };
++};
++
++const EMPTY_FORM = {
++  name: "",
++  sport: SPORTS[0],
++  condition: "GOOD",
++  totalUnits: "",
++};
++
++function Equipment() {
++  const {
++    data: equipment,
++    loading,
++    error,
++    reload,
++  } = useApi(() => api.getEquipment(), []);
++  const {
++    data: issued,
++    error: issuedError,
++    reload: reloadIssued,
++  } = useApi(() => api.getIssued(), []);
++  const { data: players } = useApi(() => api.getPlayers(), []);
++  const { toasts, push } = useToasts();
++
++  const [query, setQuery] = useState("");
++  const [sportFilter, setSportFilter] = useState("ALL");
++  const [showForm, setShowForm] = useState(false);
++  const [editing, setEditing] = useState(null);
++  const [formError, setFormError] = useState(null);
++  const [issueFor, setIssueFor] = useState(null);
++  const [issuePlayer, setIssuePlayer] = useState("");
++  const [issueError, setIssueError] = useState(null);
++  const [confirmDelete, setConfirmDelete] = useState(null);
++  const [busy, setBusy] = useState(false);
++
++  if (loading) return <Loading />;
++  if (error) return <ErrorBox message={error} />;
++
++  const refresh = () => {
++    reload();
++    reloadIssued();
++  };
++
++  const visible = equipment.filter(
++    (e) =>
++      (sportFilter === "ALL" || e.sport === sportFilter) &&
++      [e.name, e.id, e.sport].join(" ").toLowerCase().includes(query.toLowerCase()),
++  );
++
++  const totals = equipment.reduce(
++    (acc, e) => ({
++      total: acc.total + e.totalUnits,
++      available: acc.available + e.availableUnits,
++      issued: acc.issued + e.issuedUnits,
++      attention:
++        acc.attention + (["NEEDS_REPAIR", "WORN"].includes(e.condition) ? 1 : 0),
++    }),
++    { total: 0, available: 0, issued: 0, attention: 0 },
++  );
++
++  const submitItem = async (payload) => {
++    try {
++      if (editing) {
++        await api.updateEquipment(editing.id, payload);
++        push("Equipment updated");
++      } else {
++        await api.addEquipment(payload);
++        push("Equipment added");
++      }
++      setFormError(null);
++      setShowForm(false);
++      setEditing(null);
++      refresh();
++    } catch (err) {
++      setFormError(err.message);
++    }
++  };
++
++  const issue = async (e) => {
++    e.preventDefault();
++    setBusy(true);
++    try {
++      await api.issueEquipment(issueFor.id, issuePlayer);
++      push(`${issueFor.name} issued`);
++      setIssueFor(null);
++      setIssueError(null);
++      refresh();
++    } catch (err) {
++      setIssueError(err.message);
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  const doReturn = async (i) => {
++    try {
++      await api.returnEquipment(i.id);
++      push(`${i.item} returned`);
++      refresh();
++    } catch (err) {
++      push(err.message, "error");
++    }
++  };
++
++  const doDelete = async () => {
++    setBusy(true);
++    try {
++      await api.deleteEquipment(confirmDelete.id);
++      push(`${confirmDelete.name} deleted`);
++      setConfirmDelete(null);
++      refresh();
++    } catch (err) {
++      push(err.message, "error");
++      setConfirmDelete(null);
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Equipment Inventory</h2>
++          <p>Stock levels, condition, and issue / return tracking.</p>
++        </div>
++        <button
++          className="btn"
++          onClick={() => {
++            setEditing(null);
++            setFormError(null);
++            setShowForm(true);
++          }}
++        >
++          + Add equipment
++        </button>
++      </div>
++
++      <div className="stat-grid">
++        <Stat icon="📦" tone="blue" value={totals.total} label="Total units" sub={`${equipment.length} item types`} />
++        <Stat icon="✅" tone="green" value={totals.available} label="Available" sub="ready to issue" />
++        <Stat icon="🎽" tone="violet" value={totals.issued} label="Issued" sub={`${issued?.length ?? 0} active issue records`} />
++        <Stat icon="🛠️" tone="amber" value={totals.attention} label="Need attention" sub="worn or needs repair" />
++      </div>
++
++      {(showForm || editing) && (
++        <EquipmentForm
++          key={editing?.id || "new"}
++          initial={editing}
++          error={formError}
++          onSubmit={submitItem}
++          onCancel={() => {
++            setShowForm(false);
++            setEditing(null);
++            setFormError(null);
++          }}
++        />
++      )}
++
++      {confirmDelete && (
++        <div className="card card-pad" role="alertdialog" aria-labelledby="del-title">
++          <h3 id="del-title">Delete {confirmDelete.name}?</h3>
++          <p style={{ margin: 0, color: "var(--text-2)", fontSize: 13.5 }}>
++            This removes all {confirmDelete.totalUnits} units of this item from
++            the inventory. Items with units still on issue cannot be deleted.
++          </p>
++          <div className="form-actions">
++            <button className="btn btn--danger" onClick={doDelete} disabled={busy}>
++              {busy ? "Deleting…" : "Yes, delete"}
++            </button>
++            <button className="btn btn--ghost" onClick={() => setConfirmDelete(null)}>
++              Keep it
++            </button>
++          </div>
++        </div>
++      )}
++
++      {issueFor && (
++        <form className="card card-pad" onSubmit={issue}>
++          <h3>
++            Issue {issueFor.name}{" "}
++            <span className="badge badge--blue" style={{ marginLeft: 6 }}>
++              {issueFor.availableUnits} available
++            </span>
++          </h3>
++          <div className="form-grid">
++            <div className="field">
++              <label htmlFor="eq-player">Issue to player</label>
++              <select
++                id="eq-player"
++                className="select"
++                required
++                value={issuePlayer}
++                onChange={(e) => setIssuePlayer(e.target.value)}
++              >
++                <option value="">Select player…</option>
++                {(players || []).map((p) => (
++                  <option key={p.id} value={p.id}>
++                    {p.name} ({p.rollNo})
++                  </option>
++                ))}
++              </select>
++            </div>
++            <button className="btn" type="submit" disabled={!issuePlayer || busy}>
++              {busy ? "Issuing…" : "Issue item"}
++            </button>
++            <button className="btn btn--ghost" type="button" onClick={() => setIssueFor(null)}>
++              Cancel
++            </button>
++          </div>
++          {issueError && (
++            <div className="form-error" role="alert">
++              {issueError}
++            </div>
++          )}
++        </form>
++      )}
++
++      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
++        <input
++          className="input search"
++          placeholder="Search equipment…"
++          value={query}
++          onChange={(e) => setQuery(e.target.value)}
++          aria-label="Search equipment"
++        />
++        <select
++          className="select"
++          style={{ maxWidth: 200 }}
++          value={sportFilter}
++          onChange={(e) => setSportFilter(e.target.value)}
++          aria-label="Filter by sport"
++        >
++          <option value="ALL">All sports</option>
++          {SPORTS.map((s) => (
++            <option key={s}>{s}</option>
++          ))}
++        </select>
++      </div>
++
++      <div className="card table-card table-wrap">
++        <table>
++          <thead>
++            <tr>
++              <th>ID</th>
++              <th>Item</th>
++              <th>Sport</th>
++              <th>Condition</th>
++              <th>Available / Total</th>
++              <th>Status</th>
++              <th></th>
++            </tr>
++          </thead>
++          <tbody>
++            {visible.map((e) => {
++              const a = availability(e);
++              return (
++                <tr key={e.id}>
++                  <td className="mono">{e.id}</td>
++                  <td>{e.name}</td>
++                  <td>{e.sport}</td>
++                  <td>
++                    <span className={`badge ${conditionClass(e.condition)}`}>
++                      {pretty(e.condition)}
++                    </span>
++                  </td>
++                  <td className="mono">
++                    {e.availableUnits} / {e.totalUnits}
++                  </td>
++                  <td>
++                    <span className={`badge ${a.cls}`}>{a.label}</span>
++                  </td>
++                  <td>
++                    <div className="actions">
++                      <button
++                        className="btn btn--sm"
++                        disabled={e.availableUnits === 0}
++                        onClick={() => {
++                          setIssueFor(e);
++                          setIssuePlayer("");
++                          setIssueError(null);
++                        }}
++                      >
++                        Issue
++                      </button>
++                      <button
++                        className="btn btn--ghost btn--sm"
++                        onClick={() => {
++                          setShowForm(false);
++                          setFormError(null);
++                          setEditing(e);
++                        }}
++                      >
++                        Edit
++                      </button>
++                      <button
++                        className="btn btn--danger btn--sm"
++                        onClick={() => setConfirmDelete(e)}
++                        aria-label={`Delete ${e.name}`}
++                      >
++                        Delete
++                      </button>
++                    </div>
++                  </td>
++                </tr>
++              );
++            })}
++          </tbody>
++        </table>
++        {!visible.length && <Empty icon="🎽" text="No equipment matches your filters." />}
++      </div>
++
++      <div className="card card-pad">
++        <h3>Currently issued ({issued?.length ?? 0})</h3>
++        {issuedError && <ErrorBox message={issuedError} />}
++        {!issued && !issuedError && <Loading />}
++        {issued && issued.length > 0 && (
++          <div className="table-wrap">
++            <table>
++              <thead>
++                <tr>
++                  <th>Issue ID</th>
++                  <th>Item</th>
++                  <th>Player</th>
++                  <th>Issued on</th>
++                  <th></th>
++                </tr>
++              </thead>
++              <tbody>
++                {issued.map((i) => (
++                  <tr key={i.id}>
++                    <td className="mono">{i.id}</td>
++                    <td>{i.item}</td>
++                    <td>{i.playerName}</td>
++                    <td className="mono">{i.issuedOn}</td>
++                    <td>
++                      <button className="btn btn--ghost btn--sm" onClick={() => doReturn(i)}>
++                        ↩ Return
++                      </button>
++                    </td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++        )}
++        {issued && !issued.length && <Empty icon="📦" text="Nothing is on issue right now." />}
++      </div>
++      <Toasts toasts={toasts} />
++    </>
++  );
++}
++
++function Stat({ icon, tone, value, label, sub }) {
++  return (
++    <div className="card stat">
++      <div className={`stat-icon ${tone}`}>{icon}</div>
++      <div>
++        <div className="stat-value">{value}</div>
++        <div className="stat-label">{label}</div>
++        <div className="stat-sub">{sub}</div>
++      </div>
++    </div>
++  );
++}
++
++function EquipmentForm({ initial, error, onSubmit, onCancel }) {
++  const [form, setForm] = useState(
++    initial
++      ? {
++          name: initial.name,
++          sport: initial.sport,
++          condition: initial.condition,
++          totalUnits: initial.totalUnits,
++        }
++      : EMPTY_FORM,
++  );
++  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
++  return (
++    <form
++      className="card card-pad"
++      onSubmit={(e) => {
++        e.preventDefault();
++        onSubmit({ ...form, totalUnits: Number(form.totalUnits) });
++      }}
++    >
++      <h3>{initial ? `Edit ${initial.name}` : "New equipment"}</h3>
++      <div className="form-grid">
++        <div className="field">
++          <label htmlFor="eq-name">Item name</label>
++          <input id="eq-name" className="input" required value={form.name} onChange={(e) => set("name", e.target.value)} />
++        </div>
++        <div className="field">
++          <label htmlFor="eq-sport">Sport</label>
++          <select id="eq-sport" className="select" value={form.sport} onChange={(e) => set("sport", e.target.value)}>
++            {SPORTS.map((s) => (
++              <option key={s}>{s}</option>
++            ))}
++          </select>
++        </div>
++        <div className="field">
++          <label htmlFor="eq-cond">Condition</label>
++          <select id="eq-cond" className="select" value={form.condition} onChange={(e) => set("condition", e.target.value)}>
++            {CONDITIONS.map((c) => (
++              <option key={c} value={c}>
++                {pretty(c)}
++              </option>
++            ))}
++          </select>
++        </div>
++        <div className="field">
++          <label htmlFor="eq-units">Total units</label>
++          <input
++            id="eq-units"
++            className="input"
++            type="number"
++            min="1"
++            required
++            value={form.totalUnits}
++            onChange={(e) => set("totalUnits", e.target.value)}
++          />
++        </div>
++      </div>
++      {error && (
++        <div className="form-error" role="alert">
++          {error}
++        </div>
++      )}
++      <div className="form-actions">
++        <button className="btn" type="submit">
++          {initial ? "Save changes" : "Add equipment"}
++        </button>
++        <button className="btn btn--ghost" type="button" onClick={onCancel}>
++          Cancel
++        </button>
++      </div>
++    </form>
++  );
++}
++
++Equipment.title = "Equipment Inventory";
++Equipment.icon = "🎽";
++export default Equipment;
+diff --git a/frontend/src/pages/Facilities.jsx b/frontend/src/pages/Facilities.jsx
+index 497b892..516213a 100644
+--- a/frontend/src/pages/Facilities.jsx
++++ b/frontend/src/pages/Facilities.jsx
+@@ -1,7 +1,7 @@
+ import { useState, useEffect } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SLOTS } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+ function Facilities() {
+diff --git a/frontend/src/pages/Matches.jsx b/frontend/src/pages/Matches.jsx
+new file mode 100644
+index 0000000..cebff01
+--- /dev/null
++++ b/frontend/src/pages/Matches.jsx
+@@ -0,0 +1,411 @@
++import { useState } from "react";
++import useApi, { useToasts } from "../hooks/useApi.js";
++import { api, SPORTS, SLOTS, MATCH_STATUSES } from "../services/mockApi.js";
++import Toasts from "../components/Toasts.jsx";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const statusClass = (s) =>
++  ({ SCHEDULED: "badge--blue", COMPLETED: "badge--green", CANCELLED: "badge--gray" })[s];
++const pretty = (s) => s.toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
++const today = () => new Date().toISOString().slice(0, 10);
++
++const TABS = [
++  { key: "UPCOMING", label: "Upcoming" },
++  { key: "COMPLETED", label: "Completed" },
++  { key: "CANCELLED", label: "Cancelled" },
++  { key: "ALL", label: "All" },
++];
++
++function Matches() {
++  const {
++    data: matches,
++    loading,
++    error,
++    reload,
++  } = useApi(() => api.getMatches(), []);
++  const { data: teams } = useApi(() => api.getTeams(), []);
++  const { data: players } = useApi(() => api.getPlayers(), []);
++  const { data: tournaments } = useApi(() => api.getTournaments(), []);
++  const { toasts, push } = useToasts();
++
++  const [tab, setTab] = useState("UPCOMING");
++  const [sportFilter, setSportFilter] = useState("ALL");
++  const [showForm, setShowForm] = useState(false);
++  const [scoring, setScoring] = useState(null);
++  const [confirmCancel, setConfirmCancel] = useState(null);
++
++  if (loading) return <Loading />;
++  if (error) return <ErrorBox message={error} />;
++
++  const sorted = [...matches].sort((a, b) =>
++    tab === "COMPLETED" ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date),
++  );
++  const visible = sorted.filter(
++    (m) =>
++      (sportFilter === "ALL" || m.sport === sportFilter) &&
++      (tab === "ALL" ||
++        (tab === "UPCOMING" ? m.status === "SCHEDULED" : m.status === tab)),
++  );
++  const counts = Object.fromEntries(
++    MATCH_STATUSES.map((s) => [s, matches.filter((m) => m.status === s).length]),
++  );
++
++  const cancel = async () => {
++    try {
++      await api.cancelMatch(confirmCancel.id);
++      push("Match cancelled");
++      reload();
++    } catch (err) {
++      push(err.message, "error");
++    }
++    setConfirmCancel(null);
++  };
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Matches &amp; Scores</h2>
++          <p>
++            {counts.SCHEDULED} upcoming · {counts.COMPLETED} completed ·{" "}
++            {counts.CANCELLED} cancelled
++          </p>
++        </div>
++        <button className="btn" onClick={() => setShowForm((s) => !s)}>
++          {showForm ? "Close form" : "+ Schedule match"}
++        </button>
++      </div>
++
++      {showForm && (
++        <ScheduleForm
++          teams={teams || []}
++          players={players || []}
++          tournaments={tournaments || []}
++          onCancel={() => setShowForm(false)}
++          onDone={() => {
++            push("Match scheduled");
++            setShowForm(false);
++            setTab("UPCOMING");
++            reload();
++          }}
++        />
++      )}
++
++      {confirmCancel && (
++        <div className="card card-pad" role="alertdialog" aria-labelledby="mc-title">
++          <h3 id="mc-title">
++            Cancel {confirmCancel.home} vs {confirmCancel.away}?
++          </h3>
++          <p style={{ margin: 0, color: "var(--text-2)", fontSize: 13.5 }}>
++            The fixture on {confirmCancel.date} ({confirmCancel.slot}) will be
++            marked cancelled and can no longer be scored.
++          </p>
++          <div className="form-actions">
++            <button className="btn btn--danger" onClick={cancel}>
++              Yes, cancel match
++            </button>
++            <button className="btn btn--ghost" onClick={() => setConfirmCancel(null)}>
++              Keep it
++            </button>
++          </div>
++        </div>
++      )}
++
++      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
++        <div className="checks" role="tablist" aria-label="Match status">
++          {TABS.map((t) => (
++            <label key={t.key}>
++              <input
++                type="radio"
++                name="mtab"
++                checked={tab === t.key}
++                onChange={() => setTab(t.key)}
++              />{" "}
++              {t.label}
++            </label>
++          ))}
++        </div>
++        <select
++          className="select"
++          style={{ maxWidth: 200 }}
++          value={sportFilter}
++          onChange={(e) => setSportFilter(e.target.value)}
++          aria-label="Filter by sport"
++        >
++          <option value="ALL">All sports</option>
++          {SPORTS.map((s) => (
++            <option key={s}>{s}</option>
++          ))}
++        </select>
++      </div>
++
++      <div className="grid-cards">
++        {visible.map((m) => (
++          <div className="card card-pad" key={m.id}>
++            <div
++              style={{
++                display: "flex",
++                justifyContent: "space-between",
++                gap: 8,
++                alignItems: "flex-start",
++              }}
++            >
++              <span className="mono" style={{ fontSize: 12, color: "var(--text-2)" }}>
++                {m.id} · {m.sport}
++              </span>
++              <span className={`badge ${statusClass(m.status)}`}>{pretty(m.status)}</span>
++            </div>
++            <div
++              style={{
++                display: "grid",
++                gridTemplateColumns: "1fr auto 1fr",
++                gap: 10,
++                alignItems: "center",
++                margin: "14px 0",
++                textAlign: "center",
++              }}
++            >
++              <Side name={m.home} score={m.homeScore} win={m.status === "COMPLETED" && m.homeScore > m.awayScore} />
++              <span style={{ color: "var(--text-2)", fontWeight: 700 }}>
++                {m.status === "COMPLETED" ? "–" : "vs"}
++              </span>
++              <Side name={m.away} score={m.awayScore} win={m.status === "COMPLETED" && m.awayScore > m.homeScore} />
++            </div>
++            <p style={{ color: "var(--text-2)", fontSize: 13, margin: "0 0 12px" }}>
++              {m.tournament || "Friendly"} · {m.date} · {m.slot}
++            </p>
++
++            {scoring?.id === m.id ? (
++              <ScoreForm
++                match={m}
++                onCancel={() => setScoring(null)}
++                onDone={() => {
++                  push("Result recorded");
++                  setScoring(null);
++                  reload();
++                }}
++              />
++            ) : (
++              m.status !== "CANCELLED" && (
++                <div className="actions">
++                  <button className="btn btn--sm" onClick={() => setScoring(m)}>
++                    {m.status === "COMPLETED" ? "Edit score" : "Record score"}
++                  </button>
++                  {m.status === "SCHEDULED" && (
++                    <button className="btn btn--danger btn--sm" onClick={() => setConfirmCancel(m)}>
++                      Cancel match
++                    </button>
++                  )}
++                </div>
++              )
++            )}
++          </div>
++        ))}
++        {!visible.length && (
++          <div className="card" style={{ gridColumn: "1/-1" }}>
++            <Empty icon="⚽" text="No matches in this view." />
++          </div>
++        )}
++      </div>
++      <Toasts toasts={toasts} />
++    </>
++  );
++}
++
++function Side({ name, score, win }) {
++  return (
++    <div>
++      <div style={{ fontWeight: win ? 800 : 600, fontSize: 14 }}>
++        {win && <span aria-label="winner">🏅 </span>}
++        {name}
++      </div>
++      {score !== null && score !== undefined && (
++        <div className="kpi-value" style={{ marginTop: 4 }}>
++          {score}
++        </div>
++      )}
++    </div>
++  );
++}
++
++function ScoreForm({ match, onDone, onCancel }) {
++  const [home, setHome] = useState(match.homeScore ?? "");
++  const [away, setAway] = useState(match.awayScore ?? "");
++  const [err, setErr] = useState(null);
++  const [busy, setBusy] = useState(false);
++  return (
++    <form
++      onSubmit={async (e) => {
++        e.preventDefault();
++        setBusy(true);
++        try {
++          await api.recordScore(match.id, Number(home), Number(away));
++          onDone();
++        } catch (ex) {
++          setErr(ex.message);
++          setBusy(false);
++        }
++      }}
++    >
++      <div className="form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
++        <div className="field">
++          <label htmlFor={`hs-${match.id}`}>{match.home}</label>
++          <input id={`hs-${match.id}`} className="input" type="number" min="0" required value={home} onChange={(e) => setHome(e.target.value)} />
++        </div>
++        <div className="field">
++          <label htmlFor={`as-${match.id}`}>{match.away}</label>
++          <input id={`as-${match.id}`} className="input" type="number" min="0" required value={away} onChange={(e) => setAway(e.target.value)} />
++        </div>
++      </div>
++      {err && (
++        <div className="form-error" role="alert">
++          {err}
++        </div>
++      )}
++      <div className="form-actions">
++        <button className="btn btn--sm" type="submit" disabled={busy}>
++          {busy ? "Saving…" : "Save result"}
++        </button>
++        <button className="btn btn--ghost btn--sm" type="button" onClick={onCancel}>
++          Cancel
++        </button>
++      </div>
++    </form>
++  );
++}
++
++function ScheduleForm({ teams, players, tournaments, onDone, onCancel }) {
++  const [form, setForm] = useState({
++    tournament: "",
++    sport: SPORTS[0],
++    home: "",
++    away: "",
++    date: today(),
++    slot: SLOTS[0],
++  });
++  const [err, setErr] = useState(null);
++  const [busy, setBusy] = useState(false);
++  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
++
++  const sportTeams = teams.filter((t) => t.sport === form.sport);
++  const sportPlayers = players.filter((p) => p.preferences.includes(form.sport));
++
++  const pickTournament = (name) => {
++    const t = tournaments.find((x) => x.name === name);
++    setForm((f) => ({ ...f, tournament: name, sport: t ? t.sport : f.sport, home: "", away: "" }));
++  };
++
++  const participantSelect = (key, label) => (
++    <div className="field">
++      <label htmlFor={`ms-${key}`}>{label}</label>
++      <select id={`ms-${key}`} className="select" required value={form[key]} onChange={(e) => set(key, e.target.value)}>
++        <option value="">Select…</option>
++        {sportTeams.length > 0 && (
++          <optgroup label="Teams">
++            {sportTeams.map((t) => (
++              <option key={t.id} value={t.name}>
++                {t.name}
++              </option>
++            ))}
++          </optgroup>
++        )}
++        {sportPlayers.length > 0 && (
++          <optgroup label="Players">
++            {sportPlayers.map((p) => (
++              <option key={p.id} value={p.name}>
++                {p.name}
++              </option>
++            ))}
++          </optgroup>
++        )}
++      </select>
++    </div>
++  );
++
++  return (
++    <form
++      className="card card-pad"
++      onSubmit={async (e) => {
++        e.preventDefault();
++        if (form.date < today()) {
++          setErr("Matches cannot be scheduled in the past");
++          return;
++        }
++        setBusy(true);
++        try {
++          await api.scheduleMatch({ ...form, tournament: form.tournament || "Friendly" });
++          onDone();
++        } catch (ex) {
++          setErr(ex.message);
++          setBusy(false);
++        }
++      }}
++    >
++      <h3>Schedule a match</h3>
++      <div className="form-grid">
++        <div className="field">
++          <label htmlFor="ms-tour">Tournament</label>
++          <select id="ms-tour" className="select" value={form.tournament} onChange={(e) => pickTournament(e.target.value)}>
++            <option value="">Friendly (no tournament)</option>
++            {tournaments.map((t) => (
++              <option key={t.id} value={t.name}>
++                {t.name}
++              </option>
++            ))}
++          </select>
++        </div>
++        <div className="field">
++          <label htmlFor="ms-sport">Sport</label>
++          <select
++            id="ms-sport"
++            className="select"
++            value={form.sport}
++            disabled={!!form.tournament}
++            onChange={(e) => setForm((f) => ({ ...f, sport: e.target.value, home: "", away: "" }))}
++          >
++            {SPORTS.map((s) => (
++              <option key={s}>{s}</option>
++            ))}
++          </select>
++        </div>
++        {participantSelect("home", "Home side")}
++        {participantSelect("away", "Away side")}
++        <div className="field">
++          <label htmlFor="ms-date">Date</label>
++          <input id="ms-date" className="input" type="date" min={today()} required value={form.date} onChange={(e) => set("date", e.target.value)} />
++        </div>
++        <div className="field">
++          <label htmlFor="ms-slot">Time slot</label>
++          <select id="ms-slot" className="select" value={form.slot} onChange={(e) => set("slot", e.target.value)}>
++            {SLOTS.map((s) => (
++              <option key={s}>{s}</option>
++            ))}
++          </select>
++        </div>
++      </div>
++      {!sportTeams.length && !sportPlayers.length && (
++        <p className="field-error" style={{ marginTop: 10 }}>
++          No teams or players are linked to {form.sport} yet.
++        </p>
++      )}
++      {err && (
++        <div className="form-error" role="alert">
++          {err}
++        </div>
++      )}
++      <div className="form-actions">
++        <button className="btn" type="submit" disabled={busy}>
++          {busy ? "Scheduling…" : "Schedule match"}
++        </button>
++        <button className="btn btn--ghost" type="button" onClick={onCancel}>
++          Cancel
++        </button>
++      </div>
++    </form>
++  );
++}
++
++Matches.title = "Match Scheduling & Scores";
++Matches.icon = "⚽";
++export default Matches;
+diff --git a/frontend/src/pages/Players.jsx b/frontend/src/pages/Players.jsx
+index b4adf0a..ccc255c 100644
+--- a/frontend/src/pages/Players.jsx
++++ b/frontend/src/pages/Players.jsx
+@@ -1,7 +1,7 @@
+ import { useState } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SPORTS } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import Empty from "../components/Empty.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+diff --git a/frontend/src/pages/Reports.jsx b/frontend/src/pages/Reports.jsx
+new file mode 100644
+index 0000000..2ec3472
+--- /dev/null
++++ b/frontend/src/pages/Reports.jsx
+@@ -0,0 +1,401 @@
++import { useState } from "react";
++import useApi from "../hooks/useApi.js";
++import { api, SPORTS, TOURNAMENT_STATUSES } from "../services/mockApi.js";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const inr = (n) => `₹${Number(n).toLocaleString("en-IN")}`;
++const pretty = (s) =>
++  s
++    .replaceAll("_", " ")
++    .toLowerCase()
++    .replace(/^\w/, (c) => c.toUpperCase());
++const payClass = (s) => ({ PAID: "badge--green", SUCCESS: "badge--green", PENDING: "badge--amber", FAILED: "badge--red" })[s] || "badge--gray";
++const tourClass = (s) =>
++  ({
++    DRAFT: "badge--gray",
++    REGISTRATION_OPEN: "badge--green",
++    REGISTRATION_CLOSED: "badge--amber",
++    IN_PROGRESS: "badge--violet",
++    COMPLETED: "badge--blue",
++  })[s];
++
++/** Escape a value for CSV output. */
++const csvCell = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
++
++function Reports() {
++  const { data: reports, loading, error, reload } = useApi(() => api.getReports(), []);
++  const { data: payments, error: payError } = useApi(() => api.getPayments(), []);
++  const { data: players } = useApi(() => api.getPlayers(), []);
++  const { data: tournaments } = useApi(() => api.getTournaments(), []);
++  const { data: equipment } = useApi(() => api.getEquipment(), []);
++  const { data: schedule } = useApi(() => api.getSchedule(new Date().toISOString().slice(0, 10)), []);
++
++  const [active, setActive] = useState("ALL");
++  const [payStatus, setPayStatus] = useState("ALL");
++  const [payQuery, setPayQuery] = useState("");
++  const [from, setFrom] = useState("");
++  const [to, setTo] = useState("");
++  const [sportFilter, setSportFilter] = useState("ALL");
++
++  if (loading) return <Loading />;
++  if (error)
++    return (
++      <>
++        <ErrorBox message={error} />
++        <button className="btn btn--ghost" style={{ alignSelf: "flex-start" }} onClick={reload}>
++          Retry
++        </button>
++      </>
++    );
++
++  const show = (tag) => active === "ALL" || active === tag;
++
++  // ---- live headline figure shown on each report card
++  const headline = {
++    Players: players ? `${players.filter((p) => p.registered).length}/${players.length} registered` : "…",
++    Tournaments: tournaments ? `${tournaments.filter((t) => t.status === "REGISTRATION_OPEN").length} open for entries` : "…",
++    Facilities: schedule
++      ? `${schedule.rows.reduce((s, r) => s + r.slots.filter((x) => x.booking).length, 0)} slot(s) booked today`
++      : "…",
++    Equipment: equipment ? `${equipment.filter((e) => ["WORN", "NEEDS_REPAIR"].includes(e.condition)).length} items need attention` : "…",
++    Payments: payments ? `${inr(payments.filter((p) => p.status === "PENDING").reduce((s, p) => s + p.amount, 0))} outstanding` : "…",
++  };
++
++  const payStatuses = payments ? [...new Set(payments.map((p) => p.status))] : [];
++  const filteredPayments = (payments || []).filter(
++    (p) =>
++      (payStatus === "ALL" || p.status === payStatus) &&
++      (!from || p.date >= from) &&
++      (!to || p.date <= to) &&
++      [p.id, p.player, p.description].join(" ").toLowerCase().includes(payQuery.toLowerCase()),
++  );
++  const sum = (list, status) => list.filter((p) => !status || p.status === status).reduce((s, p) => s + p.amount, 0);
++
++  const exportCsv = () => {
++    const header = ["Payment ID", "Player", "Description", "Amount (INR)", "Status", "Date"];
++    const rows = filteredPayments.map((p) => [p.id, p.player, p.description, p.amount, p.status, p.date]);
++    const csv = [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\n");
++    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
++    const a = document.createElement("a");
++    a.href = url;
++    a.download = `sportssphere-payments-${new Date().toISOString().slice(0, 10)}.csv`;
++    document.body.appendChild(a);
++    a.click();
++    a.remove();
++    URL.revokeObjectURL(url);
++  };
++
++  const visibleTournaments = (tournaments || []).filter((t) => sportFilter === "ALL" || t.sport === sportFilter);
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Reports</h2>
++          <p>Live summaries of registrations, tournaments, facilities, equipment and payments.</p>
++        </div>
++        {active !== "ALL" && (
++          <button className="btn btn--ghost" onClick={() => setActive("ALL")}>
++            Show all reports
++          </button>
++        )}
++      </div>
++
++      <div className="grid-cards">
++        {reports.map((r) => (
++          <button
++            key={r.title}
++            className="card tile"
++            onClick={() => setActive((a) => (a === r.tag ? "ALL" : r.tag))}
++            aria-pressed={active === r.tag}
++            style={{
++              textAlign: "left",
++              cursor: "pointer",
++              font: "inherit",
++              color: "inherit",
++              outline: active === r.tag ? "2px solid var(--brand-2)" : undefined,
++            }}
++          >
++            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
++              <span className="tile-icon" aria-hidden="true">
++                {r.icon}
++              </span>
++              <span className="badge badge--blue">{r.tag}</span>
++            </div>
++            <h4>{r.title}</h4>
++            <p>{r.desc}</p>
++            <p style={{ marginTop: 10, color: "var(--brand)", fontWeight: 700 }}>{headline[r.tag]}</p>
++          </button>
++        ))}
++        {!reports.length && <Empty icon="🧾" text="No reports configured." />}
++      </div>
++
++      {show("Payments") && (
++        <div className="card card-pad">
++          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
++            <h3 style={{ margin: 0 }}>💰 Payment records</h3>
++            <button className="btn btn--ghost btn--sm" onClick={exportCsv} disabled={!filteredPayments.length}>
++              ⬇ Export CSV
++            </button>
++          </div>
++          {payError && <ErrorBox message={payError} />}
++          {!payments && !payError && <Loading />}
++          {payments && (
++            <>
++              <div className="form-grid" style={{ marginBottom: 14 }}>
++                <div className="field">
++                  <label htmlFor="pay-q">Search</label>
++                  <input id="pay-q" className="input" placeholder="Player, description or ID…" value={payQuery} onChange={(e) => setPayQuery(e.target.value)} />
++                </div>
++                <div className="field">
++                  <label htmlFor="pay-s">Status</label>
++                  <select id="pay-s" className="select" value={payStatus} onChange={(e) => setPayStatus(e.target.value)}>
++                    <option value="ALL">All statuses</option>
++                    {payStatuses.map((s) => (
++                      <option key={s} value={s}>
++                        {pretty(s)}
++                      </option>
++                    ))}
++                  </select>
++                </div>
++                <div className="field">
++                  <label htmlFor="pay-from">From</label>
++                  <input id="pay-from" className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
++                </div>
++                <div className="field">
++                  <label htmlFor="pay-to">To</label>
++                  <input id="pay-to" className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
++                </div>
++                <button
++                  className="btn btn--ghost"
++                  type="button"
++                  onClick={() => {
++                    setPayQuery("");
++                    setPayStatus("ALL");
++                    setFrom("");
++                    setTo("");
++                  }}
++                >
++                  Clear filters
++                </button>
++              </div>
++              <div className="table-wrap">
++                <table>
++                  <thead>
++                    <tr>
++                      <th>ID</th>
++                      <th>Player</th>
++                      <th>Description</th>
++                      <th>Date</th>
++                      <th>Status</th>
++                      <th style={{ textAlign: "right" }}>Amount</th>
++                    </tr>
++                  </thead>
++                  <tbody>
++                    {filteredPayments.map((p) => (
++                      <tr key={p.id}>
++                        <td className="mono">{p.id}</td>
++                        <td>{p.player}</td>
++                        <td>{p.description}</td>
++                        <td className="mono">{p.date}</td>
++                        <td>
++                          <span className={`badge ${payClass(p.status)}`}>{pretty(p.status)}</span>
++                        </td>
++                        <td className="mono" style={{ textAlign: "right" }}>
++                          {inr(p.amount)}
++                        </td>
++                      </tr>
++                    ))}
++                  </tbody>
++                  {filteredPayments.length > 0 && (
++                    <tfoot>
++                      <tr>
++                        <td colSpan={5} style={{ fontWeight: 700 }}>
++                          Total ({filteredPayments.length}) · collected {inr(sum(filteredPayments, "PAID"))} · pending{" "}
++                          {inr(sum(filteredPayments, "PENDING"))}
++                        </td>
++                        <td className="mono" style={{ textAlign: "right", fontWeight: 800 }}>
++                          {inr(sum(filteredPayments))}
++                        </td>
++                      </tr>
++                    </tfoot>
++                  )}
++                </table>
++                {!filteredPayments.length && <Empty icon="💰" text="No payments match these filters." />}
++              </div>
++            </>
++          )}
++        </div>
++      )}
++
++      {(show("Players") || show("Tournaments")) && (
++        <div className="grid-2">
++          {show("Players") && (
++            <div className="card card-pad">
++              <h3>🏃 Registration summary</h3>
++              {!players ? (
++                <Loading />
++              ) : !players.length ? (
++                <Empty text="No players yet." />
++              ) : (
++                <>
++                  <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", marginBottom: 16 }}>
++                    <Mini label="Players" value={players.length} />
++                    <Mini label="Registered" value={players.filter((p) => p.registered).length} />
++                    <Mini label="Not registered" value={players.filter((p) => !p.registered).length} />
++                  </div>
++                  {SPORTS.map((s) => {
++                    const n = players.filter((p) => p.preferences.includes(s)).length;
++                    return (
++                      <div className="bar-row" key={s}>
++                        <span>{s}</span>
++                        <div style={{ background: "var(--brand-soft)", borderRadius: 999 }}>
++                          <div className="bar" style={{ width: `${(n / players.length) * 100}%` }} />
++                        </div>
++                        <span className="mono">{n}</span>
++                      </div>
++                    );
++                  })}
++                </>
++              )}
++            </div>
++          )}
++
++          {show("Tournaments") && (
++            <div className="card card-pad">
++              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
++                <h3 style={{ margin: 0 }}>🏆 Tournament summary</h3>
++                <select className="select" style={{ maxWidth: 170 }} value={sportFilter} onChange={(e) => setSportFilter(e.target.value)} aria-label="Filter tournaments by sport">
++                  <option value="ALL">All sports</option>
++                  {SPORTS.map((s) => (
++                    <option key={s}>{s}</option>
++                  ))}
++                </select>
++              </div>
++              {!tournaments ? (
++                <Loading />
++              ) : (
++                <>
++                  <div className="checks" style={{ marginBottom: 12 }}>
++                    {TOURNAMENT_STATUSES.map((s) => (
++                      <span key={s} className={`badge ${tourClass(s)}`}>
++                        {pretty(s)}: {visibleTournaments.filter((t) => t.status === s).length}
++                      </span>
++                    ))}
++                  </div>
++                  <div className="table-wrap">
++                    <table>
++                      <thead>
++                        <tr>
++                          <th>Tournament</th>
++                          <th>Status</th>
++                          <th>Entries</th>
++                          <th>Deadline</th>
++                        </tr>
++                      </thead>
++                      <tbody>
++                        {visibleTournaments.map((t) => (
++                          <tr key={t.id}>
++                            <td>
++                              {t.name}
++                              <div style={{ fontSize: 12, color: "var(--text-2)" }}>{t.sport}</div>
++                            </td>
++                            <td>
++                              <span className={`badge ${tourClass(t.status)}`}>{pretty(t.status)}</span>
++                            </td>
++                            <td className="mono">
++                              {t.entries}/{t.maxEntries}
++                            </td>
++                            <td className="mono">{t.registrationDeadline}</td>
++                          </tr>
++                        ))}
++                      </tbody>
++                    </table>
++                    {!visibleTournaments.length && <Empty icon="🏆" text="No tournaments for this sport." />}
++                  </div>
++                </>
++              )}
++            </div>
++          )}
++        </div>
++      )}
++
++      {(show("Facilities") || show("Equipment")) && (
++        <div className="grid-2">
++          {show("Facilities") && (
++            <div className="card card-pad">
++              <h3>📅 Facility utilisation — today</h3>
++              {!schedule ? (
++                <Loading />
++              ) : (
++                schedule.rows.map((r) => {
++                  const used = r.slots.filter((s) => s.booking).length;
++                  return (
++                    <div className="bar-row" key={r.name} style={{ gridTemplateColumns: "160px 1fr 50px" }}>
++                      <span>{r.name}</span>
++                      <div style={{ background: "var(--brand-soft)", borderRadius: 999 }}>
++                        <div className="bar" style={{ width: `${(used / r.slots.length) * 100}%` }} />
++                      </div>
++                      <span className="mono">
++                        {used}/{r.slots.length}
++                      </span>
++                    </div>
++                  );
++                })
++              )}
++            </div>
++          )}
++          {show("Equipment") && (
++            <div className="card card-pad">
++              <h3>🎽 Equipment condition audit</h3>
++              {!equipment ? (
++                <Loading />
++              ) : !equipment.length ? (
++                <Empty text="Inventory is empty." />
++              ) : (
++                <div className="table-wrap">
++                  <table>
++                    <thead>
++                      <tr>
++                        <th>Item</th>
++                        <th>Condition</th>
++                        <th>Issued</th>
++                      </tr>
++                    </thead>
++                    <tbody>
++                      {equipment.map((e) => (
++                        <tr key={e.id}>
++                          <td>{e.name}</td>
++                          <td>{pretty(e.condition)}</td>
++                          <td className="mono">
++                            {e.issuedUnits}/{e.totalUnits}
++                          </td>
++                        </tr>
++                      ))}
++                    </tbody>
++                  </table>
++                </div>
++              )}
++            </div>
++          )}
++        </div>
++      )}
++    </>
++  );
++}
++
++function Mini({ label, value }) {
++  return (
++    <div className="card kpi" style={{ boxShadow: "none", padding: "12px 14px" }}>
++      <div>
++        <div className="kpi-value">{value}</div>
++        <div className="stat-label">{label}</div>
++      </div>
++    </div>
++  );
++}
++
++Reports.title = "Reports";
++Reports.icon = "🧾";
++export default Reports;
+diff --git a/frontend/src/pages/Teams.jsx b/frontend/src/pages/Teams.jsx
+index 4b4ab1b..6712583 100644
+--- a/frontend/src/pages/Teams.jsx
++++ b/frontend/src/pages/Teams.jsx
+@@ -1,7 +1,7 @@
+ import { useState } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SPORTS } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import Empty from "../components/Empty.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+diff --git a/frontend/src/pages/Tournaments.jsx b/frontend/src/pages/Tournaments.jsx
+index 4879929..5574955 100644
+--- a/frontend/src/pages/Tournaments.jsx
++++ b/frontend/src/pages/Tournaments.jsx
+@@ -1,7 +1,7 @@
+ import { useState } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SPORTS, TOURNAMENT_STATUSES } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import Empty from "../components/Empty.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+diff --git a/frontend/src/services/mockApi.js b/frontend/src/services/mockApi.js
+index 86607ac..c3409d8 100644
+--- a/frontend/src/services/mockApi.js
++++ b/frontend/src/services/mockApi.js
+@@ -293,6 +293,25 @@ export const api = {
+     issued = issued.filter(x => x.id !== issueId)
+     logActivity('↩️', `${i.item} returned by ${i.playerName}`)
+   },
++  async updateEquipment(id, data) {
++    await delay()
++    const e = find(equipment, id); if (!e) throw new Error('Equipment not found')
++    if (!data.name?.trim()) throw new Error('Item name is required')
++    const total = Number(data.totalUnits)
++    if (!(total > 0)) throw new Error('Total units must be positive')
++    const out = e.totalUnits - e.availableUnits
++    if (total < out) throw new Error(`${out} unit(s) are on issue — total cannot be less than ${out}`)
++    Object.assign(e, { name: data.name.trim(), sport: data.sport, condition: data.condition, totalUnits: total, availableUnits: total - out })
++    issued.forEach(i => { if (i.equipmentId === id) i.item = e.name })
++    logActivity('✏️', `${e.name} details updated`)
++  },
++  async deleteEquipment(id) {
++    await delay()
++    const e = find(equipment, id); if (!e) throw new Error('Equipment not found')
++    if (issued.some(i => i.equipmentId === id)) throw new Error(`Return all issued ${e.name} units before deleting it`)
++    equipment = equipment.filter(x => x.id !== id)
++    logActivity('🗑️', `${e.name} removed from inventory`)
++  },
+   async getIssued() { await delay(); return [...issued] },
+ 
+   // -- matches
+@@ -351,4 +370,69 @@ export const api = {
+   // -- persistence controls (preview)
+   async saveData() { await delay(600); logActivity('💾', 'Snapshot saved (preview only — nothing was written to disk)') },
+   async loadData() { await delay(600); logActivity('📂', 'Snapshot loaded (preview only)') },
++
++  // -- named snapshots (kept in this browser's localStorage; never sent to a server)
++  async listSnapshots() { await delay(); return snapshots.map(({ state, ...meta }) => meta) },
++  async saveSnapshot(label) {
++    await delay(500)
++    const state = captureState()
++    const snap = {
++      id: uid('SN'),
++      label: label?.trim() || `Snapshot ${new Date().toLocaleString('en-IN')}`,
++      createdAt: new Date().toISOString(),
++      counts: countsOf(state),
++      state,
++    }
++    snapshots = [snap, ...snapshots]
++    const persisted = persistSnapshots()
++    logActivity('💾', `Snapshot "${snap.label}" saved`)
++    return { id: snap.id, persisted }
++  },
++  async restoreSnapshot(id) {
++    await delay(500)
++    const snap = snapshots.find(s => s.id === id); if (!snap) throw new Error('Snapshot not found')
++    applyState(snap.state)
++    logActivity('📂', `Snapshot "${snap.label}" restored`)
++  },
++  async deleteSnapshot(id) {
++    await delay()
++    const snap = snapshots.find(s => s.id === id); if (!snap) throw new Error('Snapshot not found')
++    snapshots = snapshots.filter(s => s.id !== id)
++    persistSnapshots()
++  },
++  async resetData() {
++    await delay(500)
++    applyState(INITIAL_STATE)
++    logActivity('↺', 'Preview data reset to the original sample set')
++  },
++  async getDataCounts() { await delay(); return countsOf(captureState()) },
++}
++
++// ---------------------------- snapshot helpers ------------------------------
++const SNAPSHOT_KEY = 'sportssphere.snapshots.v1'
++const clone = (v) => JSON.parse(JSON.stringify(v))
++function captureState() {
++  return clone({ players, coaches, teams, tournaments, bookings, equipment, issued, matches, payments, activity })
++}
++function applyState(s) {
++  const c = clone(s)
++  players = c.players; coaches = c.coaches; teams = c.teams; tournaments = c.tournaments
++  bookings = c.bookings; equipment = c.equipment; issued = c.issued; matches = c.matches
++  payments = c.payments; activity = c.activity
++}
++function countsOf(s) {
++  return {
++    players: s.players.length, coaches: s.coaches.length, teams: s.teams.length,
++    tournaments: s.tournaments.length, bookings: s.bookings.length, equipment: s.equipment.length,
++    issued: s.issued.length, matches: s.matches.length, payments: s.payments.length,
++  }
++}
++function readSnapshots() {
++  try { return JSON.parse(window.localStorage.getItem(SNAPSHOT_KEY)) || [] } catch { return [] }
++}
++/** Returns true if snapshots were written to browser storage, false if kept in memory only. */
++function persistSnapshots() {
++  try { window.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots)); return true } catch { return false }
+ }
++const INITIAL_STATE = captureState()
++let snapshots = readSnapshots()
+diff --git a/frontend/src/styles.css b/frontend/src/styles.css
+index 348b4e5..09dda1b 100644
+--- a/frontend/src/styles.css
++++ b/frontend/src/styles.css
+@@ -507,6 +507,10 @@ tbody tr:hover {
+   gap: 20px;
+   align-items: start;
+ }
++/* let tables inside grid columns scroll instead of widening the column */
++.grid-2 > * {
++  min-width: 0;
++}
+ .loading {
+   padding: 46px;
+   text-align: center;
+diff --git a/src/pages/Analytics.jsx b/src/pages/Analytics.jsx
+new file mode 100644
+index 0000000..f36585c
+--- /dev/null
++++ b/src/pages/Analytics.jsx
+@@ -0,0 +1,303 @@
++import { useState } from "react";
++import useApi from "../hooks/useApi.js";
++import { api, MATCH_STATUSES } from "../services/mockApi.js";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const winRate = (p) => (p.matchesPlayed ? Math.round((p.matchesWon / p.matchesPlayed) * 100) : 0);
++
++const METRICS = {
++  net: { label: "Net wins", value: (p) => p.matchesWon - p.matchesLost, fmt: (v) => (v > 0 ? `+${v}` : v) },
++  wins: { label: "Wins", value: (p) => p.matchesWon, fmt: (v) => v },
++  points: { label: "Points", value: (p) => p.pointsScored, fmt: (v) => v },
++  rate: { label: "Win rate", value: winRate, fmt: (v) => `${v}%` },
++};
++
++const COLUMNS = [
++  { key: "name", label: "Player" },
++  { key: "matchesPlayed", label: "Played" },
++  { key: "matchesWon", label: "Won" },
++  { key: "matchesLost", label: "Lost" },
++  { key: "matchesDrawn", label: "Drawn" },
++  { key: "rate", label: "Win %" },
++  { key: "pointsScored", label: "Points" },
++];
++
++const STATUS_COLORS = { SCHEDULED: "var(--brand-2)", COMPLETED: "var(--green)", CANCELLED: "#b8bfcc" };
++
++function Analytics() {
++  const { data, loading, error, reload } = useApi(() => api.getAnalytics(), []);
++  const { data: players, error: playersError } = useApi(() => api.getPlayers(), []);
++  const { data: matches } = useApi(() => api.getMatches(), []);
++  const [metric, setMetric] = useState("net");
++  const [sort, setSort] = useState({ key: "matchesWon", dir: "desc" });
++  const [onlyRegistered, setOnlyRegistered] = useState(false);
++
++  if (loading) return <Loading />;
++  if (error)
++    return (
++      <>
++        <ErrorBox message={error} />
++        <button className="btn btn--ghost" style={{ alignSelf: "flex-start" }} onClick={reload}>
++          Retry
++        </button>
++      </>
++    );
++
++  const maxSport = Math.max(1, ...data.bySport.map((s) => s.players));
++  const pool = (players || []).filter((p) => !onlyRegistered || p.registered);
++
++  const m = METRICS[metric];
++  const leaderboard = [...pool]
++    .sort((a, b) => m.value(b) - m.value(a) || b.pointsScored - a.pointsScored)
++    .slice(0, 5);
++
++  const sortVal = (p, k) => (k === "rate" ? winRate(p) : p[k]);
++  const table = [...pool].sort((a, b) => {
++    const va = sortVal(a, sort.key);
++    const vb = sortVal(b, sort.key);
++    const c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
++    return sort.dir === "asc" ? c : -c;
++  });
++
++  const totals = pool.reduce(
++    (acc, p) => ({
++      won: acc.won + p.matchesWon,
++      lost: acc.lost + p.matchesLost,
++      drawn: acc.drawn + p.matchesDrawn,
++    }),
++    { won: 0, lost: 0, drawn: 0 },
++  );
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Analytics</h2>
++          <p>Participation, performance and leaderboard across all sports.</p>
++        </div>
++        <button className="btn btn--ghost" onClick={reload}>
++          ↻ Refresh
++        </button>
++      </div>
++
++      <div className="kpi-grid">
++        {data.kpis.map((k) => (
++          <div className="card kpi" key={k.label}>
++            <span className="kpi-icon" aria-hidden="true">
++              {k.icon}
++            </span>
++            <div>
++              <div className="kpi-value">{k.value}</div>
++              <div className="stat-label">{k.label}</div>
++            </div>
++          </div>
++        ))}
++      </div>
++
++      <div className="grid-2">
++        <div className="card card-pad">
++          <h3>Sport-wise participation</h3>
++          <p style={{ margin: "-6px 0 14px", color: "var(--text-2)", fontSize: 12.5 }}>
++            Players listing each sport as a preference
++          </p>
++          {data.bySport.map((s) => (
++            <div className="bar-row" key={s.sport}>
++              <span>{s.sport}</span>
++              <div style={{ background: "var(--brand-soft)", borderRadius: 999 }}>
++                <div
++                  className="bar"
++                  style={{ width: `${(s.players / maxSport) * 100}%`, minWidth: s.players ? 10 : 0 }}
++                  role="img"
++                  aria-label={`${s.sport}: ${s.players} players`}
++                />
++              </div>
++              <span className="mono">{s.players}</span>
++            </div>
++          ))}
++        </div>
++
++        <div className="card card-pad">
++          <h3>Match status</h3>
++          {!matches ? (
++            <Loading />
++          ) : !matches.length ? (
++            <Empty icon="⚽" text="No matches recorded yet." />
++          ) : (
++            <Donut matches={matches} />
++          )}
++        </div>
++      </div>
++
++      <div className="grid-2">
++        <div className="card card-pad">
++          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
++            <h3 style={{ margin: 0 }}>🏆 Leaderboard</h3>
++            <select className="select" style={{ maxWidth: 200 }} value={metric} onChange={(e) => setMetric(e.target.value)} aria-label="Rank by">
++              {Object.entries(METRICS).map(([k, v]) => (
++                <option key={k} value={k}>
++                  Rank by {v.label.toLowerCase()}
++                </option>
++              ))}
++            </select>
++          </div>
++          {leaderboard.map((p, i) => (
++            <div className="rank" key={p.id}>
++              <span className="rank-num">{i + 1}</span>
++              <span style={{ flex: 1 }}>
++                {i === 0 && "🥇 "}
++                {i === 1 && "🥈 "}
++                {i === 2 && "🥉 "}
++                {p.name}
++              </span>
++              <span className="mono">{m.fmt(m.value(p))}</span>
++            </div>
++          ))}
++          {!leaderboard.length && <Empty icon="🏆" text="No players to rank." />}
++        </div>
++
++        <div className="card card-pad">
++          <h3>Overall results</h3>
++          {pool.length ? (
++            <>
++              <StackBar won={totals.won} lost={totals.lost} drawn={totals.drawn} />
++              <div className="legend">
++                <span style={{ color: "var(--green)" }}>Won {totals.won}</span>
++                <span style={{ color: "var(--red)" }}>Lost {totals.lost}</span>
++                <span style={{ color: "var(--amber)" }}>Drawn {totals.drawn}</span>
++              </div>
++            </>
++          ) : (
++            <Empty text="No player results yet." />
++          )}
++        </div>
++      </div>
++
++      <div className="card card-pad">
++        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
++          <h3 style={{ margin: 0 }}>Player statistics</h3>
++          <div className="checks">
++            <label>
++              <input type="checkbox" checked={onlyRegistered} onChange={(e) => setOnlyRegistered(e.target.checked)} /> Registered players only
++            </label>
++          </div>
++        </div>
++        {playersError && <ErrorBox message={playersError} />}
++        {!players && !playersError && <Loading />}
++        {players && (
++          <div className="table-wrap">
++            <table>
++              <thead>
++                <tr>
++                  {COLUMNS.map((c) => (
++                    <th key={c.key} aria-sort={sort.key === c.key ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
++                      <button
++                        className="btn btn--ghost btn--sm"
++                        style={{ border: 0, padding: 0, background: "none", font: "inherit", color: "inherit" }}
++                        onClick={() =>
++                          setSort((s) => ({ key: c.key, dir: s.key === c.key && s.dir === "desc" ? "asc" : "desc" }))
++                        }
++                      >
++                        {c.label} {sort.key === c.key ? (sort.dir === "asc" ? "▲" : "▼") : ""}
++                      </button>
++                    </th>
++                  ))}
++                </tr>
++              </thead>
++              <tbody>
++                {table.map((p) => (
++                  <tr key={p.id}>
++                    <td>{p.name}</td>
++                    <td className="mono">{p.matchesPlayed}</td>
++                    <td className="mono">{p.matchesWon}</td>
++                    <td className="mono">{p.matchesLost}</td>
++                    <td className="mono">{p.matchesDrawn}</td>
++                    <td>
++                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 110 }}>
++                        <div style={{ flex: 1, background: "var(--brand-soft)", borderRadius: 999 }}>
++                          <div className="bar" style={{ width: `${winRate(p)}%` }} />
++                        </div>
++                        <span className="mono">{winRate(p)}%</span>
++                      </div>
++                    </td>
++                    <td className="mono">{p.pointsScored}</td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++            {!table.length && <Empty text="No players match this filter." />}
++          </div>
++        )}
++      </div>
++    </>
++  );
++}
++
++function StackBar({ won, lost, drawn }) {
++  const total = won + lost + drawn || 1;
++  const seg = (v, color) => <div style={{ width: `${(v / total) * 100}%`, background: color }} />;
++  return (
++    <div
++      role="img"
++      aria-label={`Won ${won}, lost ${lost}, drawn ${drawn}`}
++      style={{ display: "flex", height: 18, borderRadius: 999, overflow: "hidden", gap: 2, background: "var(--border)" }}
++    >
++      {seg(won, "var(--green)")}
++      {seg(lost, "var(--red)")}
++      {seg(drawn, "var(--amber)")}
++    </div>
++  );
++}
++
++function Donut({ matches }) {
++  const counts = MATCH_STATUSES.map((s) => ({ s, n: matches.filter((m) => m.status === s).length }));
++  const total = matches.length;
++  const R = 54;
++  const C = 2 * Math.PI * R;
++  let offset = 0;
++  return (
++    <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
++      <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label={counts.map((c) => `${c.s} ${c.n}`).join(", ")}>
++        <circle cx="70" cy="70" r={R} fill="none" stroke="var(--border)" strokeWidth="18" />
++        {counts.map(({ s, n }) => {
++          const len = (n / total) * C;
++          const el = (
++            <circle
++              key={s}
++              cx="70"
++              cy="70"
++              r={R}
++              fill="none"
++              stroke={STATUS_COLORS[s]}
++              strokeWidth="18"
++              strokeDasharray={`${len} ${C - len}`}
++              strokeDashoffset={-offset}
++              transform="rotate(-90 70 70)"
++            />
++          );
++          offset += len;
++          return el;
++        })}
++        <text x="70" y="68" textAnchor="middle" fontSize="24" fontWeight="800" fill="var(--text)">
++          {total}
++        </text>
++        <text x="70" y="88" textAnchor="middle" fontSize="11" fill="var(--text-2)">
++          matches
++        </text>
++      </svg>
++      <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13.5 }}>
++        {counts.map(({ s, n }) => (
++          <li key={s} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}>
++            <span style={{ width: 10, height: 10, borderRadius: 3, background: STATUS_COLORS[s] }} />
++            {s.charAt(0) + s.slice(1).toLowerCase()}
++            <strong style={{ marginLeft: 6 }}>{n}</strong>
++          </li>
++        ))}
++      </ul>
++    </div>
++  );
++}
++
++Analytics.title = "Analytics";
++Analytics.icon = "📈";
++export default Analytics;
+diff --git a/src/pages/Coaches.jsx b/src/pages/Coaches.jsx
+index c718c8b..e716356 100644
+--- a/src/pages/Coaches.jsx
++++ b/src/pages/Coaches.jsx
+@@ -1,7 +1,7 @@
+ import { useState } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SPORTS } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+ function Coaches() {
+diff --git a/src/pages/DataControls.jsx b/src/pages/DataControls.jsx
+new file mode 100644
+index 0000000..b5f96ed
+--- /dev/null
++++ b/src/pages/DataControls.jsx
+@@ -0,0 +1,218 @@
++import { useState } from "react";
++import useApi, { useToasts } from "../hooks/useApi.js";
++import { api } from "../services/mockApi.js";
++import Toasts from "../components/Toasts.jsx";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const COUNT_LABELS = {
++  players: "Players",
++  coaches: "Coaches",
++  teams: "Teams",
++  tournaments: "Tournaments",
++  bookings: "Bookings",
++  equipment: "Equipment items",
++  issued: "Items on issue",
++  matches: "Matches",
++  payments: "Payments",
++};
++
++const fmtDate = (iso) =>
++  new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
++
++function DataControls() {
++  const { data: snapshots, loading, error, reload } = useApi(() => api.listSnapshots(), []);
++  const { data: counts, reload: reloadCounts } = useApi(() => api.getDataCounts(), []);
++  const { toasts, push } = useToasts();
++  const [label, setLabel] = useState("");
++  const [busy, setBusy] = useState(null);
++  // { type: 'restore' | 'delete' | 'reset', snap? }
++  const [confirm, setConfirm] = useState(null);
++
++  if (loading) return <Loading />;
++  if (error) return <ErrorBox message={error} />;
++
++  const refresh = () => {
++    reload();
++    reloadCounts();
++  };
++
++  const save = async (e) => {
++    e.preventDefault();
++    setBusy("save");
++    try {
++      const { persisted } = await api.saveSnapshot(label);
++      push(persisted ? "Snapshot saved in this browser" : "Snapshot saved for this session only (browser storage unavailable)", persisted ? "success" : "error");
++      setLabel("");
++      refresh();
++    } catch (err) {
++      push(err.message, "error");
++    } finally {
++      setBusy(null);
++    }
++  };
++
++  const runConfirmed = async () => {
++    const { type, snap } = confirm;
++    setBusy(type);
++    try {
++      if (type === "restore") {
++        await api.restoreSnapshot(snap.id);
++        push(`Restored "${snap.label}"`);
++      } else if (type === "delete") {
++        await api.deleteSnapshot(snap.id);
++        push(`Deleted "${snap.label}"`);
++      } else if (type === "reset") {
++        await api.resetData();
++        push("Sample data restored");
++      }
++      refresh();
++    } catch (err) {
++      push(err.message, "error");
++    } finally {
++      setBusy(null);
++      setConfirm(null);
++    }
++  };
++
++  const confirmText = confirm && {
++    restore: {
++      title: `Restore "${confirm.snap?.label}"?`,
++      body: "All current players, teams, tournaments, bookings, equipment, matches and payments will be replaced with this snapshot. Unsaved changes will be lost — save a snapshot first if you want to keep them.",
++      action: "Yes, restore",
++    },
++    delete: {
++      title: `Delete "${confirm.snap?.label}"?`,
++      body: "This snapshot will be removed permanently from this browser. Current data is not affected.",
++      action: "Yes, delete",
++    },
++    reset: {
++      title: "Reset to the original sample data?",
++      body: "Every change made in this preview will be discarded and the built-in sample data reloaded. Saved snapshots are kept.",
++      action: "Yes, reset",
++    },
++  }[confirm.type];
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Save / Load Data</h2>
++          <p>Save the current preview data as a snapshot and restore it later.</p>
++        </div>
++      </div>
++
++      <div className="preview-banner" role="note" style={{ margin: 0 }}>
++        Snapshots are stored in <strong>this browser only</strong> (localStorage). They are not
++        written to the Java backend's data file and are not shared with other devices.
++      </div>
++
++      <div className="grid-2">
++        <form className="card card-pad" onSubmit={save}>
++          <h3>💾 Save snapshot</h3>
++          <div className="field">
++            <label htmlFor="snap-label">Snapshot name (optional)</label>
++            <input
++              id="snap-label"
++              className="input"
++              placeholder="e.g. Before inter-hostel cup"
++              maxLength={60}
++              value={label}
++              onChange={(e) => setLabel(e.target.value)}
++            />
++          </div>
++          <div className="form-actions">
++            <button className="btn" type="submit" disabled={!!busy}>
++              {busy === "save" ? "Saving…" : "Save current data"}
++            </button>
++            <button className="btn btn--danger" type="button" disabled={!!busy} onClick={() => setConfirm({ type: "reset" })}>
++              Reset to sample data
++            </button>
++          </div>
++        </form>
++
++        <div className="card card-pad">
++          <h3>📊 Current data</h3>
++          {!counts ? (
++            <Loading />
++          ) : (
++            <div className="checks">
++              {Object.entries(COUNT_LABELS).map(([k, l]) => (
++                <span key={k} className="badge badge--blue">
++                  {l}: {counts[k]}
++                </span>
++              ))}
++            </div>
++          )}
++        </div>
++      </div>
++
++      {confirm && (
++        <div className="card card-pad" role="alertdialog" aria-labelledby="dc-title" style={{ borderColor: "#f3c6c6" }}>
++          <h3 id="dc-title">⚠️ {confirmText.title}</h3>
++          <p style={{ margin: 0, color: "var(--text-2)", fontSize: 13.5 }}>{confirmText.body}</p>
++          <div className="form-actions">
++            <button className="btn btn--danger" onClick={runConfirmed} disabled={!!busy}>
++              {busy ? "Working…" : confirmText.action}
++            </button>
++            <button className="btn btn--ghost" onClick={() => setConfirm(null)} disabled={!!busy}>
++              Cancel
++            </button>
++          </div>
++        </div>
++      )}
++
++      <div className="card card-pad">
++        <h3>📂 Saved snapshots ({snapshots.length})</h3>
++        {snapshots.length ? (
++          <div className="table-wrap">
++            <table>
++              <thead>
++                <tr>
++                  <th>Name</th>
++                  <th>Saved</th>
++                  <th>Contents</th>
++                  <th></th>
++                </tr>
++              </thead>
++              <tbody>
++                {snapshots.map((s) => (
++                  <tr key={s.id}>
++                    <td>
++                      {s.label}
++                      <div className="mono" style={{ fontSize: 11.5, color: "var(--text-2)" }}>
++                        {s.id}
++                      </div>
++                    </td>
++                    <td className="mono">{fmtDate(s.createdAt)}</td>
++                    <td style={{ fontSize: 12.5, color: "var(--text-2)" }}>
++                      {s.counts.players} players · {s.counts.teams} teams · {s.counts.tournaments} tournaments ·{" "}
++                      {s.counts.matches} matches
++                    </td>
++                    <td>
++                      <div className="actions">
++                        <button className="btn btn--sm" disabled={!!busy} onClick={() => setConfirm({ type: "restore", snap: s })}>
++                          Restore
++                        </button>
++                        <button className="btn btn--danger btn--sm" disabled={!!busy} onClick={() => setConfirm({ type: "delete", snap: s })}>
++                          Delete
++                        </button>
++                      </div>
++                    </td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++        ) : (
++          <Empty icon="💾" text="No snapshots yet — save one above." />
++        )}
++      </div>
++      <Toasts toasts={toasts} />
++    </>
++  );
++}
++
++DataControls.title = "Save / Load Data";
++DataControls.icon = "💾";
++export default DataControls;
+diff --git a/src/pages/Equipment.jsx b/src/pages/Equipment.jsx
+new file mode 100644
+index 0000000..1e58e7c
+--- /dev/null
++++ b/src/pages/Equipment.jsx
+@@ -0,0 +1,470 @@
++import { useState } from "react";
++import useApi, { useToasts } from "../hooks/useApi.js";
++import { api, SPORTS, CONDITIONS } from "../services/mockApi.js";
++import Toasts from "../components/Toasts.jsx";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const conditionClass = (c) =>
++  ({
++    EXCELLENT: "badge--green",
++    GOOD: "badge--blue",
++    WORN: "badge--amber",
++    NEEDS_REPAIR: "badge--red",
++    RETIRED: "badge--gray",
++  })[c] || "badge--gray";
++const pretty = (s) =>
++  s
++    .replaceAll("_", " ")
++    .toLowerCase()
++    .replace(/^\w/, (c) => c.toUpperCase());
++
++const availability = (e) => {
++  if (e.availableUnits === 0)
++    return { label: "Out of stock", cls: "badge--red" };
++  if (e.availableUnits / e.totalUnits <= 0.25)
++    return { label: "Low stock", cls: "badge--amber" };
++  return { label: "Available", cls: "badge--green" };
++};
++
++const EMPTY_FORM = {
++  name: "",
++  sport: SPORTS[0],
++  condition: "GOOD",
++  totalUnits: "",
++};
++
++function Equipment() {
++  const {
++    data: equipment,
++    loading,
++    error,
++    reload,
++  } = useApi(() => api.getEquipment(), []);
++  const {
++    data: issued,
++    error: issuedError,
++    reload: reloadIssued,
++  } = useApi(() => api.getIssued(), []);
++  const { data: players } = useApi(() => api.getPlayers(), []);
++  const { toasts, push } = useToasts();
++
++  const [query, setQuery] = useState("");
++  const [sportFilter, setSportFilter] = useState("ALL");
++  const [showForm, setShowForm] = useState(false);
++  const [editing, setEditing] = useState(null);
++  const [formError, setFormError] = useState(null);
++  const [issueFor, setIssueFor] = useState(null);
++  const [issuePlayer, setIssuePlayer] = useState("");
++  const [issueError, setIssueError] = useState(null);
++  const [confirmDelete, setConfirmDelete] = useState(null);
++  const [busy, setBusy] = useState(false);
++
++  if (loading) return <Loading />;
++  if (error) return <ErrorBox message={error} />;
++
++  const refresh = () => {
++    reload();
++    reloadIssued();
++  };
++
++  const visible = equipment.filter(
++    (e) =>
++      (sportFilter === "ALL" || e.sport === sportFilter) &&
++      [e.name, e.id, e.sport].join(" ").toLowerCase().includes(query.toLowerCase()),
++  );
++
++  const totals = equipment.reduce(
++    (acc, e) => ({
++      total: acc.total + e.totalUnits,
++      available: acc.available + e.availableUnits,
++      issued: acc.issued + e.issuedUnits,
++      attention:
++        acc.attention + (["NEEDS_REPAIR", "WORN"].includes(e.condition) ? 1 : 0),
++    }),
++    { total: 0, available: 0, issued: 0, attention: 0 },
++  );
++
++  const submitItem = async (payload) => {
++    try {
++      if (editing) {
++        await api.updateEquipment(editing.id, payload);
++        push("Equipment updated");
++      } else {
++        await api.addEquipment(payload);
++        push("Equipment added");
++      }
++      setFormError(null);
++      setShowForm(false);
++      setEditing(null);
++      refresh();
++    } catch (err) {
++      setFormError(err.message);
++    }
++  };
++
++  const issue = async (e) => {
++    e.preventDefault();
++    setBusy(true);
++    try {
++      await api.issueEquipment(issueFor.id, issuePlayer);
++      push(`${issueFor.name} issued`);
++      setIssueFor(null);
++      setIssueError(null);
++      refresh();
++    } catch (err) {
++      setIssueError(err.message);
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  const doReturn = async (i) => {
++    try {
++      await api.returnEquipment(i.id);
++      push(`${i.item} returned`);
++      refresh();
++    } catch (err) {
++      push(err.message, "error");
++    }
++  };
++
++  const doDelete = async () => {
++    setBusy(true);
++    try {
++      await api.deleteEquipment(confirmDelete.id);
++      push(`${confirmDelete.name} deleted`);
++      setConfirmDelete(null);
++      refresh();
++    } catch (err) {
++      push(err.message, "error");
++      setConfirmDelete(null);
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Equipment Inventory</h2>
++          <p>Stock levels, condition, and issue / return tracking.</p>
++        </div>
++        <button
++          className="btn"
++          onClick={() => {
++            setEditing(null);
++            setFormError(null);
++            setShowForm(true);
++          }}
++        >
++          + Add equipment
++        </button>
++      </div>
++
++      <div className="stat-grid">
++        <Stat icon="📦" tone="blue" value={totals.total} label="Total units" sub={`${equipment.length} item types`} />
++        <Stat icon="✅" tone="green" value={totals.available} label="Available" sub="ready to issue" />
++        <Stat icon="🎽" tone="violet" value={totals.issued} label="Issued" sub={`${issued?.length ?? 0} active issue records`} />
++        <Stat icon="🛠️" tone="amber" value={totals.attention} label="Need attention" sub="worn or needs repair" />
++      </div>
++
++      {(showForm || editing) && (
++        <EquipmentForm
++          key={editing?.id || "new"}
++          initial={editing}
++          error={formError}
++          onSubmit={submitItem}
++          onCancel={() => {
++            setShowForm(false);
++            setEditing(null);
++            setFormError(null);
++          }}
++        />
++      )}
++
++      {confirmDelete && (
++        <div className="card card-pad" role="alertdialog" aria-labelledby="del-title">
++          <h3 id="del-title">Delete {confirmDelete.name}?</h3>
++          <p style={{ margin: 0, color: "var(--text-2)", fontSize: 13.5 }}>
++            This removes all {confirmDelete.totalUnits} units of this item from
++            the inventory. Items with units still on issue cannot be deleted.
++          </p>
++          <div className="form-actions">
++            <button className="btn btn--danger" onClick={doDelete} disabled={busy}>
++              {busy ? "Deleting…" : "Yes, delete"}
++            </button>
++            <button className="btn btn--ghost" onClick={() => setConfirmDelete(null)}>
++              Keep it
++            </button>
++          </div>
++        </div>
++      )}
++
++      {issueFor && (
++        <form className="card card-pad" onSubmit={issue}>
++          <h3>
++            Issue {issueFor.name}{" "}
++            <span className="badge badge--blue" style={{ marginLeft: 6 }}>
++              {issueFor.availableUnits} available
++            </span>
++          </h3>
++          <div className="form-grid">
++            <div className="field">
++              <label htmlFor="eq-player">Issue to player</label>
++              <select
++                id="eq-player"
++                className="select"
++                required
++                value={issuePlayer}
++                onChange={(e) => setIssuePlayer(e.target.value)}
++              >
++                <option value="">Select player…</option>
++                {(players || []).map((p) => (
++                  <option key={p.id} value={p.id}>
++                    {p.name} ({p.rollNo})
++                  </option>
++                ))}
++              </select>
++            </div>
++            <button className="btn" type="submit" disabled={!issuePlayer || busy}>
++              {busy ? "Issuing…" : "Issue item"}
++            </button>
++            <button className="btn btn--ghost" type="button" onClick={() => setIssueFor(null)}>
++              Cancel
++            </button>
++          </div>
++          {issueError && (
++            <div className="form-error" role="alert">
++              {issueError}
++            </div>
++          )}
++        </form>
++      )}
++
++      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
++        <input
++          className="input search"
++          placeholder="Search equipment…"
++          value={query}
++          onChange={(e) => setQuery(e.target.value)}
++          aria-label="Search equipment"
++        />
++        <select
++          className="select"
++          style={{ maxWidth: 200 }}
++          value={sportFilter}
++          onChange={(e) => setSportFilter(e.target.value)}
++          aria-label="Filter by sport"
++        >
++          <option value="ALL">All sports</option>
++          {SPORTS.map((s) => (
++            <option key={s}>{s}</option>
++          ))}
++        </select>
++      </div>
++
++      <div className="card table-card table-wrap">
++        <table>
++          <thead>
++            <tr>
++              <th>ID</th>
++              <th>Item</th>
++              <th>Sport</th>
++              <th>Condition</th>
++              <th>Available / Total</th>
++              <th>Status</th>
++              <th></th>
++            </tr>
++          </thead>
++          <tbody>
++            {visible.map((e) => {
++              const a = availability(e);
++              return (
++                <tr key={e.id}>
++                  <td className="mono">{e.id}</td>
++                  <td>{e.name}</td>
++                  <td>{e.sport}</td>
++                  <td>
++                    <span className={`badge ${conditionClass(e.condition)}`}>
++                      {pretty(e.condition)}
++                    </span>
++                  </td>
++                  <td className="mono">
++                    {e.availableUnits} / {e.totalUnits}
++                  </td>
++                  <td>
++                    <span className={`badge ${a.cls}`}>{a.label}</span>
++                  </td>
++                  <td>
++                    <div className="actions">
++                      <button
++                        className="btn btn--sm"
++                        disabled={e.availableUnits === 0}
++                        onClick={() => {
++                          setIssueFor(e);
++                          setIssuePlayer("");
++                          setIssueError(null);
++                        }}
++                      >
++                        Issue
++                      </button>
++                      <button
++                        className="btn btn--ghost btn--sm"
++                        onClick={() => {
++                          setShowForm(false);
++                          setFormError(null);
++                          setEditing(e);
++                        }}
++                      >
++                        Edit
++                      </button>
++                      <button
++                        className="btn btn--danger btn--sm"
++                        onClick={() => setConfirmDelete(e)}
++                        aria-label={`Delete ${e.name}`}
++                      >
++                        Delete
++                      </button>
++                    </div>
++                  </td>
++                </tr>
++              );
++            })}
++          </tbody>
++        </table>
++        {!visible.length && <Empty icon="🎽" text="No equipment matches your filters." />}
++      </div>
++
++      <div className="card card-pad">
++        <h3>Currently issued ({issued?.length ?? 0})</h3>
++        {issuedError && <ErrorBox message={issuedError} />}
++        {!issued && !issuedError && <Loading />}
++        {issued && issued.length > 0 && (
++          <div className="table-wrap">
++            <table>
++              <thead>
++                <tr>
++                  <th>Issue ID</th>
++                  <th>Item</th>
++                  <th>Player</th>
++                  <th>Issued on</th>
++                  <th></th>
++                </tr>
++              </thead>
++              <tbody>
++                {issued.map((i) => (
++                  <tr key={i.id}>
++                    <td className="mono">{i.id}</td>
++                    <td>{i.item}</td>
++                    <td>{i.playerName}</td>
++                    <td className="mono">{i.issuedOn}</td>
++                    <td>
++                      <button className="btn btn--ghost btn--sm" onClick={() => doReturn(i)}>
++                        ↩ Return
++                      </button>
++                    </td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++        )}
++        {issued && !issued.length && <Empty icon="📦" text="Nothing is on issue right now." />}
++      </div>
++      <Toasts toasts={toasts} />
++    </>
++  );
++}
++
++function Stat({ icon, tone, value, label, sub }) {
++  return (
++    <div className="card stat">
++      <div className={`stat-icon ${tone}`}>{icon}</div>
++      <div>
++        <div className="stat-value">{value}</div>
++        <div className="stat-label">{label}</div>
++        <div className="stat-sub">{sub}</div>
++      </div>
++    </div>
++  );
++}
++
++function EquipmentForm({ initial, error, onSubmit, onCancel }) {
++  const [form, setForm] = useState(
++    initial
++      ? {
++          name: initial.name,
++          sport: initial.sport,
++          condition: initial.condition,
++          totalUnits: initial.totalUnits,
++        }
++      : EMPTY_FORM,
++  );
++  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
++  return (
++    <form
++      className="card card-pad"
++      onSubmit={(e) => {
++        e.preventDefault();
++        onSubmit({ ...form, totalUnits: Number(form.totalUnits) });
++      }}
++    >
++      <h3>{initial ? `Edit ${initial.name}` : "New equipment"}</h3>
++      <div className="form-grid">
++        <div className="field">
++          <label htmlFor="eq-name">Item name</label>
++          <input id="eq-name" className="input" required value={form.name} onChange={(e) => set("name", e.target.value)} />
++        </div>
++        <div className="field">
++          <label htmlFor="eq-sport">Sport</label>
++          <select id="eq-sport" className="select" value={form.sport} onChange={(e) => set("sport", e.target.value)}>
++            {SPORTS.map((s) => (
++              <option key={s}>{s}</option>
++            ))}
++          </select>
++        </div>
++        <div className="field">
++          <label htmlFor="eq-cond">Condition</label>
++          <select id="eq-cond" className="select" value={form.condition} onChange={(e) => set("condition", e.target.value)}>
++            {CONDITIONS.map((c) => (
++              <option key={c} value={c}>
++                {pretty(c)}
++              </option>
++            ))}
++          </select>
++        </div>
++        <div className="field">
++          <label htmlFor="eq-units">Total units</label>
++          <input
++            id="eq-units"
++            className="input"
++            type="number"
++            min="1"
++            required
++            value={form.totalUnits}
++            onChange={(e) => set("totalUnits", e.target.value)}
++          />
++        </div>
++      </div>
++      {error && (
++        <div className="form-error" role="alert">
++          {error}
++        </div>
++      )}
++      <div className="form-actions">
++        <button className="btn" type="submit">
++          {initial ? "Save changes" : "Add equipment"}
++        </button>
++        <button className="btn btn--ghost" type="button" onClick={onCancel}>
++          Cancel
++        </button>
++      </div>
++    </form>
++  );
++}
++
++Equipment.title = "Equipment Inventory";
++Equipment.icon = "🎽";
++export default Equipment;
+diff --git a/src/pages/Facilities.jsx b/src/pages/Facilities.jsx
+index 497b892..516213a 100644
+--- a/src/pages/Facilities.jsx
++++ b/src/pages/Facilities.jsx
+@@ -1,7 +1,7 @@
+ import { useState, useEffect } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SLOTS } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+ function Facilities() {
+diff --git a/src/pages/Matches.jsx b/src/pages/Matches.jsx
+new file mode 100644
+index 0000000..cebff01
+--- /dev/null
++++ b/src/pages/Matches.jsx
+@@ -0,0 +1,411 @@
++import { useState } from "react";
++import useApi, { useToasts } from "../hooks/useApi.js";
++import { api, SPORTS, SLOTS, MATCH_STATUSES } from "../services/mockApi.js";
++import Toasts from "../components/Toasts.jsx";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const statusClass = (s) =>
++  ({ SCHEDULED: "badge--blue", COMPLETED: "badge--green", CANCELLED: "badge--gray" })[s];
++const pretty = (s) => s.toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
++const today = () => new Date().toISOString().slice(0, 10);
++
++const TABS = [
++  { key: "UPCOMING", label: "Upcoming" },
++  { key: "COMPLETED", label: "Completed" },
++  { key: "CANCELLED", label: "Cancelled" },
++  { key: "ALL", label: "All" },
++];
++
++function Matches() {
++  const {
++    data: matches,
++    loading,
++    error,
++    reload,
++  } = useApi(() => api.getMatches(), []);
++  const { data: teams } = useApi(() => api.getTeams(), []);
++  const { data: players } = useApi(() => api.getPlayers(), []);
++  const { data: tournaments } = useApi(() => api.getTournaments(), []);
++  const { toasts, push } = useToasts();
++
++  const [tab, setTab] = useState("UPCOMING");
++  const [sportFilter, setSportFilter] = useState("ALL");
++  const [showForm, setShowForm] = useState(false);
++  const [scoring, setScoring] = useState(null);
++  const [confirmCancel, setConfirmCancel] = useState(null);
++
++  if (loading) return <Loading />;
++  if (error) return <ErrorBox message={error} />;
++
++  const sorted = [...matches].sort((a, b) =>
++    tab === "COMPLETED" ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date),
++  );
++  const visible = sorted.filter(
++    (m) =>
++      (sportFilter === "ALL" || m.sport === sportFilter) &&
++      (tab === "ALL" ||
++        (tab === "UPCOMING" ? m.status === "SCHEDULED" : m.status === tab)),
++  );
++  const counts = Object.fromEntries(
++    MATCH_STATUSES.map((s) => [s, matches.filter((m) => m.status === s).length]),
++  );
++
++  const cancel = async () => {
++    try {
++      await api.cancelMatch(confirmCancel.id);
++      push("Match cancelled");
++      reload();
++    } catch (err) {
++      push(err.message, "error");
++    }
++    setConfirmCancel(null);
++  };
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Matches &amp; Scores</h2>
++          <p>
++            {counts.SCHEDULED} upcoming · {counts.COMPLETED} completed ·{" "}
++            {counts.CANCELLED} cancelled
++          </p>
++        </div>
++        <button className="btn" onClick={() => setShowForm((s) => !s)}>
++          {showForm ? "Close form" : "+ Schedule match"}
++        </button>
++      </div>
++
++      {showForm && (
++        <ScheduleForm
++          teams={teams || []}
++          players={players || []}
++          tournaments={tournaments || []}
++          onCancel={() => setShowForm(false)}
++          onDone={() => {
++            push("Match scheduled");
++            setShowForm(false);
++            setTab("UPCOMING");
++            reload();
++          }}
++        />
++      )}
++
++      {confirmCancel && (
++        <div className="card card-pad" role="alertdialog" aria-labelledby="mc-title">
++          <h3 id="mc-title">
++            Cancel {confirmCancel.home} vs {confirmCancel.away}?
++          </h3>
++          <p style={{ margin: 0, color: "var(--text-2)", fontSize: 13.5 }}>
++            The fixture on {confirmCancel.date} ({confirmCancel.slot}) will be
++            marked cancelled and can no longer be scored.
++          </p>
++          <div className="form-actions">
++            <button className="btn btn--danger" onClick={cancel}>
++              Yes, cancel match
++            </button>
++            <button className="btn btn--ghost" onClick={() => setConfirmCancel(null)}>
++              Keep it
++            </button>
++          </div>
++        </div>
++      )}
++
++      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
++        <div className="checks" role="tablist" aria-label="Match status">
++          {TABS.map((t) => (
++            <label key={t.key}>
++              <input
++                type="radio"
++                name="mtab"
++                checked={tab === t.key}
++                onChange={() => setTab(t.key)}
++              />{" "}
++              {t.label}
++            </label>
++          ))}
++        </div>
++        <select
++          className="select"
++          style={{ maxWidth: 200 }}
++          value={sportFilter}
++          onChange={(e) => setSportFilter(e.target.value)}
++          aria-label="Filter by sport"
++        >
++          <option value="ALL">All sports</option>
++          {SPORTS.map((s) => (
++            <option key={s}>{s}</option>
++          ))}
++        </select>
++      </div>
++
++      <div className="grid-cards">
++        {visible.map((m) => (
++          <div className="card card-pad" key={m.id}>
++            <div
++              style={{
++                display: "flex",
++                justifyContent: "space-between",
++                gap: 8,
++                alignItems: "flex-start",
++              }}
++            >
++              <span className="mono" style={{ fontSize: 12, color: "var(--text-2)" }}>
++                {m.id} · {m.sport}
++              </span>
++              <span className={`badge ${statusClass(m.status)}`}>{pretty(m.status)}</span>
++            </div>
++            <div
++              style={{
++                display: "grid",
++                gridTemplateColumns: "1fr auto 1fr",
++                gap: 10,
++                alignItems: "center",
++                margin: "14px 0",
++                textAlign: "center",
++              }}
++            >
++              <Side name={m.home} score={m.homeScore} win={m.status === "COMPLETED" && m.homeScore > m.awayScore} />
++              <span style={{ color: "var(--text-2)", fontWeight: 700 }}>
++                {m.status === "COMPLETED" ? "–" : "vs"}
++              </span>
++              <Side name={m.away} score={m.awayScore} win={m.status === "COMPLETED" && m.awayScore > m.homeScore} />
++            </div>
++            <p style={{ color: "var(--text-2)", fontSize: 13, margin: "0 0 12px" }}>
++              {m.tournament || "Friendly"} · {m.date} · {m.slot}
++            </p>
++
++            {scoring?.id === m.id ? (
++              <ScoreForm
++                match={m}
++                onCancel={() => setScoring(null)}
++                onDone={() => {
++                  push("Result recorded");
++                  setScoring(null);
++                  reload();
++                }}
++              />
++            ) : (
++              m.status !== "CANCELLED" && (
++                <div className="actions">
++                  <button className="btn btn--sm" onClick={() => setScoring(m)}>
++                    {m.status === "COMPLETED" ? "Edit score" : "Record score"}
++                  </button>
++                  {m.status === "SCHEDULED" && (
++                    <button className="btn btn--danger btn--sm" onClick={() => setConfirmCancel(m)}>
++                      Cancel match
++                    </button>
++                  )}
++                </div>
++              )
++            )}
++          </div>
++        ))}
++        {!visible.length && (
++          <div className="card" style={{ gridColumn: "1/-1" }}>
++            <Empty icon="⚽" text="No matches in this view." />
++          </div>
++        )}
++      </div>
++      <Toasts toasts={toasts} />
++    </>
++  );
++}
++
++function Side({ name, score, win }) {
++  return (
++    <div>
++      <div style={{ fontWeight: win ? 800 : 600, fontSize: 14 }}>
++        {win && <span aria-label="winner">🏅 </span>}
++        {name}
++      </div>
++      {score !== null && score !== undefined && (
++        <div className="kpi-value" style={{ marginTop: 4 }}>
++          {score}
++        </div>
++      )}
++    </div>
++  );
++}
++
++function ScoreForm({ match, onDone, onCancel }) {
++  const [home, setHome] = useState(match.homeScore ?? "");
++  const [away, setAway] = useState(match.awayScore ?? "");
++  const [err, setErr] = useState(null);
++  const [busy, setBusy] = useState(false);
++  return (
++    <form
++      onSubmit={async (e) => {
++        e.preventDefault();
++        setBusy(true);
++        try {
++          await api.recordScore(match.id, Number(home), Number(away));
++          onDone();
++        } catch (ex) {
++          setErr(ex.message);
++          setBusy(false);
++        }
++      }}
++    >
++      <div className="form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
++        <div className="field">
++          <label htmlFor={`hs-${match.id}`}>{match.home}</label>
++          <input id={`hs-${match.id}`} className="input" type="number" min="0" required value={home} onChange={(e) => setHome(e.target.value)} />
++        </div>
++        <div className="field">
++          <label htmlFor={`as-${match.id}`}>{match.away}</label>
++          <input id={`as-${match.id}`} className="input" type="number" min="0" required value={away} onChange={(e) => setAway(e.target.value)} />
++        </div>
++      </div>
++      {err && (
++        <div className="form-error" role="alert">
++          {err}
++        </div>
++      )}
++      <div className="form-actions">
++        <button className="btn btn--sm" type="submit" disabled={busy}>
++          {busy ? "Saving…" : "Save result"}
++        </button>
++        <button className="btn btn--ghost btn--sm" type="button" onClick={onCancel}>
++          Cancel
++        </button>
++      </div>
++    </form>
++  );
++}
++
++function ScheduleForm({ teams, players, tournaments, onDone, onCancel }) {
++  const [form, setForm] = useState({
++    tournament: "",
++    sport: SPORTS[0],
++    home: "",
++    away: "",
++    date: today(),
++    slot: SLOTS[0],
++  });
++  const [err, setErr] = useState(null);
++  const [busy, setBusy] = useState(false);
++  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
++
++  const sportTeams = teams.filter((t) => t.sport === form.sport);
++  const sportPlayers = players.filter((p) => p.preferences.includes(form.sport));
++
++  const pickTournament = (name) => {
++    const t = tournaments.find((x) => x.name === name);
++    setForm((f) => ({ ...f, tournament: name, sport: t ? t.sport : f.sport, home: "", away: "" }));
++  };
++
++  const participantSelect = (key, label) => (
++    <div className="field">
++      <label htmlFor={`ms-${key}`}>{label}</label>
++      <select id={`ms-${key}`} className="select" required value={form[key]} onChange={(e) => set(key, e.target.value)}>
++        <option value="">Select…</option>
++        {sportTeams.length > 0 && (
++          <optgroup label="Teams">
++            {sportTeams.map((t) => (
++              <option key={t.id} value={t.name}>
++                {t.name}
++              </option>
++            ))}
++          </optgroup>
++        )}
++        {sportPlayers.length > 0 && (
++          <optgroup label="Players">
++            {sportPlayers.map((p) => (
++              <option key={p.id} value={p.name}>
++                {p.name}
++              </option>
++            ))}
++          </optgroup>
++        )}
++      </select>
++    </div>
++  );
++
++  return (
++    <form
++      className="card card-pad"
++      onSubmit={async (e) => {
++        e.preventDefault();
++        if (form.date < today()) {
++          setErr("Matches cannot be scheduled in the past");
++          return;
++        }
++        setBusy(true);
++        try {
++          await api.scheduleMatch({ ...form, tournament: form.tournament || "Friendly" });
++          onDone();
++        } catch (ex) {
++          setErr(ex.message);
++          setBusy(false);
++        }
++      }}
++    >
++      <h3>Schedule a match</h3>
++      <div className="form-grid">
++        <div className="field">
++          <label htmlFor="ms-tour">Tournament</label>
++          <select id="ms-tour" className="select" value={form.tournament} onChange={(e) => pickTournament(e.target.value)}>
++            <option value="">Friendly (no tournament)</option>
++            {tournaments.map((t) => (
++              <option key={t.id} value={t.name}>
++                {t.name}
++              </option>
++            ))}
++          </select>
++        </div>
++        <div className="field">
++          <label htmlFor="ms-sport">Sport</label>
++          <select
++            id="ms-sport"
++            className="select"
++            value={form.sport}
++            disabled={!!form.tournament}
++            onChange={(e) => setForm((f) => ({ ...f, sport: e.target.value, home: "", away: "" }))}
++          >
++            {SPORTS.map((s) => (
++              <option key={s}>{s}</option>
++            ))}
++          </select>
++        </div>
++        {participantSelect("home", "Home side")}
++        {participantSelect("away", "Away side")}
++        <div className="field">
++          <label htmlFor="ms-date">Date</label>
++          <input id="ms-date" className="input" type="date" min={today()} required value={form.date} onChange={(e) => set("date", e.target.value)} />
++        </div>
++        <div className="field">
++          <label htmlFor="ms-slot">Time slot</label>
++          <select id="ms-slot" className="select" value={form.slot} onChange={(e) => set("slot", e.target.value)}>
++            {SLOTS.map((s) => (
++              <option key={s}>{s}</option>
++            ))}
++          </select>
++        </div>
++      </div>
++      {!sportTeams.length && !sportPlayers.length && (
++        <p className="field-error" style={{ marginTop: 10 }}>
++          No teams or players are linked to {form.sport} yet.
++        </p>
++      )}
++      {err && (
++        <div className="form-error" role="alert">
++          {err}
++        </div>
++      )}
++      <div className="form-actions">
++        <button className="btn" type="submit" disabled={busy}>
++          {busy ? "Scheduling…" : "Schedule match"}
++        </button>
++        <button className="btn btn--ghost" type="button" onClick={onCancel}>
++          Cancel
++        </button>
++      </div>
++    </form>
++  );
++}
++
++Matches.title = "Match Scheduling & Scores";
++Matches.icon = "⚽";
++export default Matches;
+diff --git a/src/pages/Players.jsx b/src/pages/Players.jsx
+index b4adf0a..ccc255c 100644
+--- a/src/pages/Players.jsx
++++ b/src/pages/Players.jsx
+@@ -1,7 +1,7 @@
+ import { useState } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SPORTS } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import Empty from "../components/Empty.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+diff --git a/src/pages/Reports.jsx b/src/pages/Reports.jsx
+new file mode 100644
+index 0000000..2ec3472
+--- /dev/null
++++ b/src/pages/Reports.jsx
+@@ -0,0 +1,401 @@
++import { useState } from "react";
++import useApi from "../hooks/useApi.js";
++import { api, SPORTS, TOURNAMENT_STATUSES } from "../services/mockApi.js";
++import Empty from "../components/Empty.jsx";
++import { Loading, ErrorBox } from "./Dashboard.jsx";
++
++const inr = (n) => `₹${Number(n).toLocaleString("en-IN")}`;
++const pretty = (s) =>
++  s
++    .replaceAll("_", " ")
++    .toLowerCase()
++    .replace(/^\w/, (c) => c.toUpperCase());
++const payClass = (s) => ({ PAID: "badge--green", SUCCESS: "badge--green", PENDING: "badge--amber", FAILED: "badge--red" })[s] || "badge--gray";
++const tourClass = (s) =>
++  ({
++    DRAFT: "badge--gray",
++    REGISTRATION_OPEN: "badge--green",
++    REGISTRATION_CLOSED: "badge--amber",
++    IN_PROGRESS: "badge--violet",
++    COMPLETED: "badge--blue",
++  })[s];
++
++/** Escape a value for CSV output. */
++const csvCell = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
++
++function Reports() {
++  const { data: reports, loading, error, reload } = useApi(() => api.getReports(), []);
++  const { data: payments, error: payError } = useApi(() => api.getPayments(), []);
++  const { data: players } = useApi(() => api.getPlayers(), []);
++  const { data: tournaments } = useApi(() => api.getTournaments(), []);
++  const { data: equipment } = useApi(() => api.getEquipment(), []);
++  const { data: schedule } = useApi(() => api.getSchedule(new Date().toISOString().slice(0, 10)), []);
++
++  const [active, setActive] = useState("ALL");
++  const [payStatus, setPayStatus] = useState("ALL");
++  const [payQuery, setPayQuery] = useState("");
++  const [from, setFrom] = useState("");
++  const [to, setTo] = useState("");
++  const [sportFilter, setSportFilter] = useState("ALL");
++
++  if (loading) return <Loading />;
++  if (error)
++    return (
++      <>
++        <ErrorBox message={error} />
++        <button className="btn btn--ghost" style={{ alignSelf: "flex-start" }} onClick={reload}>
++          Retry
++        </button>
++      </>
++    );
++
++  const show = (tag) => active === "ALL" || active === tag;
++
++  // ---- live headline figure shown on each report card
++  const headline = {
++    Players: players ? `${players.filter((p) => p.registered).length}/${players.length} registered` : "…",
++    Tournaments: tournaments ? `${tournaments.filter((t) => t.status === "REGISTRATION_OPEN").length} open for entries` : "…",
++    Facilities: schedule
++      ? `${schedule.rows.reduce((s, r) => s + r.slots.filter((x) => x.booking).length, 0)} slot(s) booked today`
++      : "…",
++    Equipment: equipment ? `${equipment.filter((e) => ["WORN", "NEEDS_REPAIR"].includes(e.condition)).length} items need attention` : "…",
++    Payments: payments ? `${inr(payments.filter((p) => p.status === "PENDING").reduce((s, p) => s + p.amount, 0))} outstanding` : "…",
++  };
++
++  const payStatuses = payments ? [...new Set(payments.map((p) => p.status))] : [];
++  const filteredPayments = (payments || []).filter(
++    (p) =>
++      (payStatus === "ALL" || p.status === payStatus) &&
++      (!from || p.date >= from) &&
++      (!to || p.date <= to) &&
++      [p.id, p.player, p.description].join(" ").toLowerCase().includes(payQuery.toLowerCase()),
++  );
++  const sum = (list, status) => list.filter((p) => !status || p.status === status).reduce((s, p) => s + p.amount, 0);
++
++  const exportCsv = () => {
++    const header = ["Payment ID", "Player", "Description", "Amount (INR)", "Status", "Date"];
++    const rows = filteredPayments.map((p) => [p.id, p.player, p.description, p.amount, p.status, p.date]);
++    const csv = [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\n");
++    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
++    const a = document.createElement("a");
++    a.href = url;
++    a.download = `sportssphere-payments-${new Date().toISOString().slice(0, 10)}.csv`;
++    document.body.appendChild(a);
++    a.click();
++    a.remove();
++    URL.revokeObjectURL(url);
++  };
++
++  const visibleTournaments = (tournaments || []).filter((t) => sportFilter === "ALL" || t.sport === sportFilter);
++
++  return (
++    <>
++      <div className="page-head">
++        <div>
++          <h2>Reports</h2>
++          <p>Live summaries of registrations, tournaments, facilities, equipment and payments.</p>
++        </div>
++        {active !== "ALL" && (
++          <button className="btn btn--ghost" onClick={() => setActive("ALL")}>
++            Show all reports
++          </button>
++        )}
++      </div>
++
++      <div className="grid-cards">
++        {reports.map((r) => (
++          <button
++            key={r.title}
++            className="card tile"
++            onClick={() => setActive((a) => (a === r.tag ? "ALL" : r.tag))}
++            aria-pressed={active === r.tag}
++            style={{
++              textAlign: "left",
++              cursor: "pointer",
++              font: "inherit",
++              color: "inherit",
++              outline: active === r.tag ? "2px solid var(--brand-2)" : undefined,
++            }}
++          >
++            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
++              <span className="tile-icon" aria-hidden="true">
++                {r.icon}
++              </span>
++              <span className="badge badge--blue">{r.tag}</span>
++            </div>
++            <h4>{r.title}</h4>
++            <p>{r.desc}</p>
++            <p style={{ marginTop: 10, color: "var(--brand)", fontWeight: 700 }}>{headline[r.tag]}</p>
++          </button>
++        ))}
++        {!reports.length && <Empty icon="🧾" text="No reports configured." />}
++      </div>
++
++      {show("Payments") && (
++        <div className="card card-pad">
++          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
++            <h3 style={{ margin: 0 }}>💰 Payment records</h3>
++            <button className="btn btn--ghost btn--sm" onClick={exportCsv} disabled={!filteredPayments.length}>
++              ⬇ Export CSV
++            </button>
++          </div>
++          {payError && <ErrorBox message={payError} />}
++          {!payments && !payError && <Loading />}
++          {payments && (
++            <>
++              <div className="form-grid" style={{ marginBottom: 14 }}>
++                <div className="field">
++                  <label htmlFor="pay-q">Search</label>
++                  <input id="pay-q" className="input" placeholder="Player, description or ID…" value={payQuery} onChange={(e) => setPayQuery(e.target.value)} />
++                </div>
++                <div className="field">
++                  <label htmlFor="pay-s">Status</label>
++                  <select id="pay-s" className="select" value={payStatus} onChange={(e) => setPayStatus(e.target.value)}>
++                    <option value="ALL">All statuses</option>
++                    {payStatuses.map((s) => (
++                      <option key={s} value={s}>
++                        {pretty(s)}
++                      </option>
++                    ))}
++                  </select>
++                </div>
++                <div className="field">
++                  <label htmlFor="pay-from">From</label>
++                  <input id="pay-from" className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
++                </div>
++                <div className="field">
++                  <label htmlFor="pay-to">To</label>
++                  <input id="pay-to" className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
++                </div>
++                <button
++                  className="btn btn--ghost"
++                  type="button"
++                  onClick={() => {
++                    setPayQuery("");
++                    setPayStatus("ALL");
++                    setFrom("");
++                    setTo("");
++                  }}
++                >
++                  Clear filters
++                </button>
++              </div>
++              <div className="table-wrap">
++                <table>
++                  <thead>
++                    <tr>
++                      <th>ID</th>
++                      <th>Player</th>
++                      <th>Description</th>
++                      <th>Date</th>
++                      <th>Status</th>
++                      <th style={{ textAlign: "right" }}>Amount</th>
++                    </tr>
++                  </thead>
++                  <tbody>
++                    {filteredPayments.map((p) => (
++                      <tr key={p.id}>
++                        <td className="mono">{p.id}</td>
++                        <td>{p.player}</td>
++                        <td>{p.description}</td>
++                        <td className="mono">{p.date}</td>
++                        <td>
++                          <span className={`badge ${payClass(p.status)}`}>{pretty(p.status)}</span>
++                        </td>
++                        <td className="mono" style={{ textAlign: "right" }}>
++                          {inr(p.amount)}
++                        </td>
++                      </tr>
++                    ))}
++                  </tbody>
++                  {filteredPayments.length > 0 && (
++                    <tfoot>
++                      <tr>
++                        <td colSpan={5} style={{ fontWeight: 700 }}>
++                          Total ({filteredPayments.length}) · collected {inr(sum(filteredPayments, "PAID"))} · pending{" "}
++                          {inr(sum(filteredPayments, "PENDING"))}
++                        </td>
++                        <td className="mono" style={{ textAlign: "right", fontWeight: 800 }}>
++                          {inr(sum(filteredPayments))}
++                        </td>
++                      </tr>
++                    </tfoot>
++                  )}
++                </table>
++                {!filteredPayments.length && <Empty icon="💰" text="No payments match these filters." />}
++              </div>
++            </>
++          )}
++        </div>
++      )}
++
++      {(show("Players") || show("Tournaments")) && (
++        <div className="grid-2">
++          {show("Players") && (
++            <div className="card card-pad">
++              <h3>🏃 Registration summary</h3>
++              {!players ? (
++                <Loading />
++              ) : !players.length ? (
++                <Empty text="No players yet." />
++              ) : (
++                <>
++                  <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", marginBottom: 16 }}>
++                    <Mini label="Players" value={players.length} />
++                    <Mini label="Registered" value={players.filter((p) => p.registered).length} />
++                    <Mini label="Not registered" value={players.filter((p) => !p.registered).length} />
++                  </div>
++                  {SPORTS.map((s) => {
++                    const n = players.filter((p) => p.preferences.includes(s)).length;
++                    return (
++                      <div className="bar-row" key={s}>
++                        <span>{s}</span>
++                        <div style={{ background: "var(--brand-soft)", borderRadius: 999 }}>
++                          <div className="bar" style={{ width: `${(n / players.length) * 100}%` }} />
++                        </div>
++                        <span className="mono">{n}</span>
++                      </div>
++                    );
++                  })}
++                </>
++              )}
++            </div>
++          )}
++
++          {show("Tournaments") && (
++            <div className="card card-pad">
++              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
++                <h3 style={{ margin: 0 }}>🏆 Tournament summary</h3>
++                <select className="select" style={{ maxWidth: 170 }} value={sportFilter} onChange={(e) => setSportFilter(e.target.value)} aria-label="Filter tournaments by sport">
++                  <option value="ALL">All sports</option>
++                  {SPORTS.map((s) => (
++                    <option key={s}>{s}</option>
++                  ))}
++                </select>
++              </div>
++              {!tournaments ? (
++                <Loading />
++              ) : (
++                <>
++                  <div className="checks" style={{ marginBottom: 12 }}>
++                    {TOURNAMENT_STATUSES.map((s) => (
++                      <span key={s} className={`badge ${tourClass(s)}`}>
++                        {pretty(s)}: {visibleTournaments.filter((t) => t.status === s).length}
++                      </span>
++                    ))}
++                  </div>
++                  <div className="table-wrap">
++                    <table>
++                      <thead>
++                        <tr>
++                          <th>Tournament</th>
++                          <th>Status</th>
++                          <th>Entries</th>
++                          <th>Deadline</th>
++                        </tr>
++                      </thead>
++                      <tbody>
++                        {visibleTournaments.map((t) => (
++                          <tr key={t.id}>
++                            <td>
++                              {t.name}
++                              <div style={{ fontSize: 12, color: "var(--text-2)" }}>{t.sport}</div>
++                            </td>
++                            <td>
++                              <span className={`badge ${tourClass(t.status)}`}>{pretty(t.status)}</span>
++                            </td>
++                            <td className="mono">
++                              {t.entries}/{t.maxEntries}
++                            </td>
++                            <td className="mono">{t.registrationDeadline}</td>
++                          </tr>
++                        ))}
++                      </tbody>
++                    </table>
++                    {!visibleTournaments.length && <Empty icon="🏆" text="No tournaments for this sport." />}
++                  </div>
++                </>
++              )}
++            </div>
++          )}
++        </div>
++      )}
++
++      {(show("Facilities") || show("Equipment")) && (
++        <div className="grid-2">
++          {show("Facilities") && (
++            <div className="card card-pad">
++              <h3>📅 Facility utilisation — today</h3>
++              {!schedule ? (
++                <Loading />
++              ) : (
++                schedule.rows.map((r) => {
++                  const used = r.slots.filter((s) => s.booking).length;
++                  return (
++                    <div className="bar-row" key={r.name} style={{ gridTemplateColumns: "160px 1fr 50px" }}>
++                      <span>{r.name}</span>
++                      <div style={{ background: "var(--brand-soft)", borderRadius: 999 }}>
++                        <div className="bar" style={{ width: `${(used / r.slots.length) * 100}%` }} />
++                      </div>
++                      <span className="mono">
++                        {used}/{r.slots.length}
++                      </span>
++                    </div>
++                  );
++                })
++              )}
++            </div>
++          )}
++          {show("Equipment") && (
++            <div className="card card-pad">
++              <h3>🎽 Equipment condition audit</h3>
++              {!equipment ? (
++                <Loading />
++              ) : !equipment.length ? (
++                <Empty text="Inventory is empty." />
++              ) : (
++                <div className="table-wrap">
++                  <table>
++                    <thead>
++                      <tr>
++                        <th>Item</th>
++                        <th>Condition</th>
++                        <th>Issued</th>
++                      </tr>
++                    </thead>
++                    <tbody>
++                      {equipment.map((e) => (
++                        <tr key={e.id}>
++                          <td>{e.name}</td>
++                          <td>{pretty(e.condition)}</td>
++                          <td className="mono">
++                            {e.issuedUnits}/{e.totalUnits}
++                          </td>
++                        </tr>
++                      ))}
++                    </tbody>
++                  </table>
++                </div>
++              )}
++            </div>
++          )}
++        </div>
++      )}
++    </>
++  );
++}
++
++function Mini({ label, value }) {
++  return (
++    <div className="card kpi" style={{ boxShadow: "none", padding: "12px 14px" }}>
++      <div>
++        <div className="kpi-value">{value}</div>
++        <div className="stat-label">{label}</div>
++      </div>
++    </div>
++  );
++}
++
++Reports.title = "Reports";
++Reports.icon = "🧾";
++export default Reports;
+diff --git a/src/pages/Teams.jsx b/src/pages/Teams.jsx
+index 4b4ab1b..6712583 100644
+--- a/src/pages/Teams.jsx
++++ b/src/pages/Teams.jsx
+@@ -1,7 +1,7 @@
+ import { useState } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SPORTS } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import Empty from "../components/Empty.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+diff --git a/src/pages/Tournaments.jsx b/src/pages/Tournaments.jsx
+index 4879929..5574955 100644
+--- a/src/pages/Tournaments.jsx
++++ b/src/pages/Tournaments.jsx
+@@ -1,7 +1,7 @@
+ import { useState } from "react";
+ import useApi, { useToasts } from "../hooks/useApi.js";
+ import { api, SPORTS, TOURNAMENT_STATUSES } from "../services/mockApi.js";
+-import Toasts from "../components/Toast.jsx";
++import Toasts from "../components/Toasts.jsx";
+ import Empty from "../components/Empty.jsx";
+ import { Loading, ErrorBox } from "./Dashboard.jsx";
+ 
+diff --git a/src/services/mockApi.js b/src/services/mockApi.js
+index 86607ac..c3409d8 100644
+--- a/src/services/mockApi.js
++++ b/src/services/mockApi.js
+@@ -293,6 +293,25 @@ export const api = {
+     issued = issued.filter(x => x.id !== issueId)
+     logActivity('↩️', `${i.item} returned by ${i.playerName}`)
+   },
++  async updateEquipment(id, data) {
++    await delay()
++    const e = find(equipment, id); if (!e) throw new Error('Equipment not found')
++    if (!data.name?.trim()) throw new Error('Item name is required')
++    const total = Number(data.totalUnits)
++    if (!(total > 0)) throw new Error('Total units must be positive')
++    const out = e.totalUnits - e.availableUnits
++    if (total < out) throw new Error(`${out} unit(s) are on issue — total cannot be less than ${out}`)
++    Object.assign(e, { name: data.name.trim(), sport: data.sport, condition: data.condition, totalUnits: total, availableUnits: total - out })
++    issued.forEach(i => { if (i.equipmentId === id) i.item = e.name })
++    logActivity('✏️', `${e.name} details updated`)
++  },
++  async deleteEquipment(id) {
++    await delay()
++    const e = find(equipment, id); if (!e) throw new Error('Equipment not found')
++    if (issued.some(i => i.equipmentId === id)) throw new Error(`Return all issued ${e.name} units before deleting it`)
++    equipment = equipment.filter(x => x.id !== id)
++    logActivity('🗑️', `${e.name} removed from inventory`)
++  },
+   async getIssued() { await delay(); return [...issued] },
+ 
+   // -- matches
+@@ -351,4 +370,69 @@ export const api = {
+   // -- persistence controls (preview)
+   async saveData() { await delay(600); logActivity('💾', 'Snapshot saved (preview only — nothing was written to disk)') },
+   async loadData() { await delay(600); logActivity('📂', 'Snapshot loaded (preview only)') },
++
++  // -- named snapshots (kept in this browser's localStorage; never sent to a server)
++  async listSnapshots() { await delay(); return snapshots.map(({ state, ...meta }) => meta) },
++  async saveSnapshot(label) {
++    await delay(500)
++    const state = captureState()
++    const snap = {
++      id: uid('SN'),
++      label: label?.trim() || `Snapshot ${new Date().toLocaleString('en-IN')}`,
++      createdAt: new Date().toISOString(),
++      counts: countsOf(state),
++      state,
++    }
++    snapshots = [snap, ...snapshots]
++    const persisted = persistSnapshots()
++    logActivity('💾', `Snapshot "${snap.label}" saved`)
++    return { id: snap.id, persisted }
++  },
++  async restoreSnapshot(id) {
++    await delay(500)
++    const snap = snapshots.find(s => s.id === id); if (!snap) throw new Error('Snapshot not found')
++    applyState(snap.state)
++    logActivity('📂', `Snapshot "${snap.label}" restored`)
++  },
++  async deleteSnapshot(id) {
++    await delay()
++    const snap = snapshots.find(s => s.id === id); if (!snap) throw new Error('Snapshot not found')
++    snapshots = snapshots.filter(s => s.id !== id)
++    persistSnapshots()
++  },
++  async resetData() {
++    await delay(500)
++    applyState(INITIAL_STATE)
++    logActivity('↺', 'Preview data reset to the original sample set')
++  },
++  async getDataCounts() { await delay(); return countsOf(captureState()) },
++}
++
++// ---------------------------- snapshot helpers ------------------------------
++const SNAPSHOT_KEY = 'sportssphere.snapshots.v1'
++const clone = (v) => JSON.parse(JSON.stringify(v))
++function captureState() {
++  return clone({ players, coaches, teams, tournaments, bookings, equipment, issued, matches, payments, activity })
++}
++function applyState(s) {
++  const c = clone(s)
++  players = c.players; coaches = c.coaches; teams = c.teams; tournaments = c.tournaments
++  bookings = c.bookings; equipment = c.equipment; issued = c.issued; matches = c.matches
++  payments = c.payments; activity = c.activity
++}
++function countsOf(s) {
++  return {
++    players: s.players.length, coaches: s.coaches.length, teams: s.teams.length,
++    tournaments: s.tournaments.length, bookings: s.bookings.length, equipment: s.equipment.length,
++    issued: s.issued.length, matches: s.matches.length, payments: s.payments.length,
++  }
++}
++function readSnapshots() {
++  try { return JSON.parse(window.localStorage.getItem(SNAPSHOT_KEY)) || [] } catch { return [] }
++}
++/** Returns true if snapshots were written to browser storage, false if kept in memory only. */
++function persistSnapshots() {
++  try { window.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots)); return true } catch { return false }
+ }
++const INITIAL_STATE = captureState()
++let snapshots = readSnapshots()
+diff --git a/src/styles.css b/src/styles.css
+index 348b4e5..09dda1b 100644
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -507,6 +507,10 @@ tbody tr:hover {
+   gap: 20px;
+   align-items: start;
+ }
++/* let tables inside grid columns scroll instead of widening the column */
++.grid-2 > * {
++  min-width: 0;
++}
+ .loading {
+   padding: 46px;
+   text-align: center;
