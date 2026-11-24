@@ -293,6 +293,25 @@ export const api = {
     issued = issued.filter(x => x.id !== issueId)
     logActivity('↩️', `${i.item} returned by ${i.playerName}`)
   },
+  async updateEquipment(id, data) {
+    await delay()
+    const e = find(equipment, id); if (!e) throw new Error('Equipment not found')
+    if (!data.name?.trim()) throw new Error('Item name is required')
+    const total = Number(data.totalUnits)
+    if (!(total > 0)) throw new Error('Total units must be positive')
+    const out = e.totalUnits - e.availableUnits
+    if (total < out) throw new Error(`${out} unit(s) are on issue — total cannot be less than ${out}`)
+    Object.assign(e, { name: data.name.trim(), sport: data.sport, condition: data.condition, totalUnits: total, availableUnits: total - out })
+    issued.forEach(i => { if (i.equipmentId === id) i.item = e.name })
+    logActivity('✏️', `${e.name} details updated`)
+  },
+  async deleteEquipment(id) {
+    await delay()
+    const e = find(equipment, id); if (!e) throw new Error('Equipment not found')
+    if (issued.some(i => i.equipmentId === id)) throw new Error(`Return all issued ${e.name} units before deleting it`)
+    equipment = equipment.filter(x => x.id !== id)
+    logActivity('🗑️', `${e.name} removed from inventory`)
+  },
   async getIssued() { await delay(); return [...issued] },
 
   // -- matches
@@ -351,4 +370,69 @@ export const api = {
   // -- persistence controls (preview)
   async saveData() { await delay(600); logActivity('💾', 'Snapshot saved (preview only — nothing was written to disk)') },
   async loadData() { await delay(600); logActivity('📂', 'Snapshot loaded (preview only)') },
+
+  // -- named snapshots (kept in this browser's localStorage; never sent to a server)
+  async listSnapshots() { await delay(); return snapshots.map(({ state, ...meta }) => meta) },
+  async saveSnapshot(label) {
+    await delay(500)
+    const state = captureState()
+    const snap = {
+      id: uid('SN'),
+      label: label?.trim() || `Snapshot ${new Date().toLocaleString('en-IN')}`,
+      createdAt: new Date().toISOString(),
+      counts: countsOf(state),
+      state,
+    }
+    snapshots = [snap, ...snapshots]
+    const persisted = persistSnapshots()
+    logActivity('💾', `Snapshot "${snap.label}" saved`)
+    return { id: snap.id, persisted }
+  },
+  async restoreSnapshot(id) {
+    await delay(500)
+    const snap = snapshots.find(s => s.id === id); if (!snap) throw new Error('Snapshot not found')
+    applyState(snap.state)
+    logActivity('📂', `Snapshot "${snap.label}" restored`)
+  },
+  async deleteSnapshot(id) {
+    await delay()
+    const snap = snapshots.find(s => s.id === id); if (!snap) throw new Error('Snapshot not found')
+    snapshots = snapshots.filter(s => s.id !== id)
+    persistSnapshots()
+  },
+  async resetData() {
+    await delay(500)
+    applyState(INITIAL_STATE)
+    logActivity('↺', 'Preview data reset to the original sample set')
+  },
+  async getDataCounts() { await delay(); return countsOf(captureState()) },
 }
+
+// ---------------------------- snapshot helpers ------------------------------
+const SNAPSHOT_KEY = 'sportssphere.snapshots.v1'
+const clone = (v) => JSON.parse(JSON.stringify(v))
+function captureState() {
+  return clone({ players, coaches, teams, tournaments, bookings, equipment, issued, matches, payments, activity })
+}
+function applyState(s) {
+  const c = clone(s)
+  players = c.players; coaches = c.coaches; teams = c.teams; tournaments = c.tournaments
+  bookings = c.bookings; equipment = c.equipment; issued = c.issued; matches = c.matches
+  payments = c.payments; activity = c.activity
+}
+function countsOf(s) {
+  return {
+    players: s.players.length, coaches: s.coaches.length, teams: s.teams.length,
+    tournaments: s.tournaments.length, bookings: s.bookings.length, equipment: s.equipment.length,
+    issued: s.issued.length, matches: s.matches.length, payments: s.payments.length,
+  }
+}
+function readSnapshots() {
+  try { return JSON.parse(window.localStorage.getItem(SNAPSHOT_KEY)) || [] } catch { return [] }
+}
+/** Returns true if snapshots were written to browser storage, false if kept in memory only. */
+function persistSnapshots() {
+  try { window.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshots)); return true } catch { return false }
+}
+const INITIAL_STATE = captureState()
+let snapshots = readSnapshots()

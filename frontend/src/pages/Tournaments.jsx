@@ -1,7 +1,7 @@
 import { useState } from "react";
 import useApi, { useToasts } from "../hooks/useApi.js";
 import { api, SPORTS, TOURNAMENT_STATUSES } from "../services/mockApi.js";
-import Toasts from "../components/Toast.jsx";
+import Toasts from "../components/Toasts.jsx";
 import Empty from "../components/Empty.jsx";
 import { Loading, ErrorBox } from "./Dashboard.jsx";
 

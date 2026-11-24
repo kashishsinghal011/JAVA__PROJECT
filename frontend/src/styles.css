@@ -507,6 +507,10 @@ tbody tr:hover {
   gap: 20px;
   align-items: start;
 }
+/* let tables inside grid columns scroll instead of widening the column */
+.grid-2 > * {
+  min-width: 0;
+}
 .loading {
   padding: 46px;
   text-align: center;

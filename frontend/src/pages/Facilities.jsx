@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import useApi, { useToasts } from "../hooks/useApi.js";
 import { api, SLOTS } from "../services/mockApi.js";
-import Toasts from "../components/Toast.jsx";
+import Toasts from "../components/Toasts.jsx";
 import { Loading, ErrorBox } from "./Dashboard.jsx";
 
 function Facilities() {
